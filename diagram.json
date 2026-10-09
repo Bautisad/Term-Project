@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "author": "Drew-Faga",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "wokwi-pi-pico", "id": "pico", "top": -80, "left": -40, "attrs": {} },
+    { "type": "wokwi-breadboard-half", "id": "bb1", "top": 80, "left": -60, "attrs": {} },
+    { "type": "wokwi-potentiometer", "id": "soil", "top": -87.7, "left": 163, "attrs": {} },
+    { "type": "wokwi-photoresistor-sensor", "id": "ldr", "top": -10, "left": 260, "attrs": {} }
+  ],
+  "connections": [
+    [ "pico:3V3", "bb1:tp.1", "red", [ "h0" ] ],
+    [ "soil:VCC", "bb1:tp.5", "red", [ "v0" ] ],
+    [ "soil:SIG", "bb1:10t.a", "green", [ "v0" ] ],
+    [ "ldr:VCC", "bb1:tp.8", "red", [ "v0" ] ],
+    [ "ldr:AO", "bb1:15t.a", "orange", [ "v0" ] ],
+    [ "bb1:15t.b", "pico:GP27", "orange", [ "v0" ] ],
+    [ "soil:GND", "bb1:tn.7", "black", [ "v0" ] ],
+    [ "ldr:GND", "bb1:tn.8", "black", [ "h0", "v80" ] ]
+  ],
+  "dependencies": {}
+}
