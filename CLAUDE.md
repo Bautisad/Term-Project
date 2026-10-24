@@ -19,10 +19,17 @@ fds across restart, heartbeat within 60s of start.
 logged. The 48-hour soak is the test suite of last resort.
 - NEVER weaken, skip, or delete a test to make the suite pass.
 ## Ownership
-- alice/: capture pipeline, kernel-facing code (src/capture, src/drv)
-- bob/: storage layer, analysis engine (src/store, src/analysis)
-- Shared: supervisor, interface. The agent edits outside the current
-session owner’s area only when told explicitly whose session this is.
+- Andrew Faga: multi-process architecture (src/sensors, src/ipc, src/hub,
+  src/supervisor), Makefile, wiring design (diagram.json, pin map)
+- Duke Bautista: storage layer and analysis (src/store, src/analysis,
+  src/interface, tools/), test harness, physical build and hardware
+  testing on the Pi
+- Shared contracts: include/record.h, include/ipc.h, include/store.h.
+  Frozen first; change only with both owners’ agreement.
+- Hardware bugs need pasted evidence from the Pi (dmesg, i2cdetect -y 1,
+  raw ADC read). Duke runs the tests and pastes; Andrew diagnoses.
+- State whose session it is at the start of every session. The agent
+  edits outside that owner’s area only when told explicitly.
 ## Style
 - Systems core: C17, -Wall -Wextra -Werror, no VLAs.
 goto-cleanup for multi-resource functions.
