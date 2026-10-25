@@ -1,0 +1,11 @@
+# LF line endings for anything that runs on Linux (WSL, the Pi). CRLF breaks
+# Makefiles and shell scripts.
+Makefile            text eol=lf
+*.mk                text eol=lf
+*.sh                text eol=lf
+*.c                 text eol=lf
+*.h                 text eol=lf
+*.py                text eol=lf
+CMakeLists.txt      text eol=lf
+*.cmake             text eol=lf
+CMakePresets.json   text eol=lf
