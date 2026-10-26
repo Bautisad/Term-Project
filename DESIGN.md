@@ -51,6 +51,73 @@ What happens when power dies mid-write?
 
 
 ## Evaluation Plan
+Our device uses two sensors, a capacitive soil moisture sensor and a BH1750 light sensor, to tell us when a houseplant needs water and why. Our design doc says the biggest risk is that drift or noise makes the readings look confident but wrong. So this plan mostly tests the sensors themselves: are they accurate, stable, and actually useful together? A short last section checks that the data survives crashes and power loss.
+
+Every measurement has a method and a target. We're writing the targets down before running anything so we can't quietly move the goalposts later. If we miss one, we record the result and figure out why instead of editing the number.
+
+A note on the targets: most sensor targets below are our best guesses before we've measured anything. If the first real runs show one is unrealistic, we can change it, but we'll add a note saying what we measured and why. Targets marked (correctness) are pass/fail and stay as written.
+
+
+---
+
+
+## Part 1: Soil moisture sensor
+
+| ID | Test | Method | Target |
+|----|------|--------|--------|
+| S1 | Calibration curve | Weigh a pot of dry soil, saturate it, then take sensor readings at 5 moisture levels as it dries. Calculate water content from the weight at each point and plot raw reading against it. | The curve is monotonic (it never goes the wrong direction as soil dries) and R² ≥ 0.9. |
+| S2 | Noise | Hold the soil at a fixed moisture and take 100 readings in a row. Compare the spread of single readings against the spread of median-of-5 readings. | Standard deviation under 1% of the dry-to-wet range after taking the median of several samples. |
+| S3 | Reinsertion repeatability | At fixed moisture, pull the sensor out and push it back in 10 times, recording a reading each time. | Readings spread under 5% of the range. If it's worse, we'll document it and add "fix the probe in place" to the setup instructions. |
+| S4 | Response time | Move the sensor from dry soil into wet soil and record readings every second until they stop changing. | Settles within 5% of its final value in 10 seconds. This only measures the sensor, not how fast water spreads through the pot. |
+| S5 | Drift | Leave the sensor in a sealed container of soil at fixed moisture for 48 hours, logging once a minute. | Drift under 2% of the range over 48 h. This tests our named risk directly. |
+| S6 | Fault detection | Disconnect the sensor wire, short it, and hold a reading constant to fake a stuck sensor. | Each fault is logged within 2 sample cycles, the light sensor keeps running, and clean data causes fewer than 1 false alarm per week. |
+
+- **S1 why:** The raw ADC number means nothing until we know how it maps to actual wetness.
+- **S3 why:** Capacitive sensors are sensitive to how well the soil touches the probe, and a plant owner will move it around.
+
+---
+
+## Part 2: Light sensor (BH1750)
+
+| ID | Test | Method | Target |
+|----|------|--------|--------|
+| L1 | Accuracy against a reference | Compare the BH1750 to a reference lux meter at 5 light levels (dark room, dim lamp, normal room light, bright lamp, near a window). | Within ±15% of the reference. |
+| L2 | Range and saturation | Record readings from darkness up to the brightest light the plant will ever get, such as a sunny window. Check the BH1750 datasheet for its maximum. | The sensor never saturates at the plant's actual location. If it does, we'll document where. |
+| L3 | Angle sensitivity | Hold the light constant and rotate the sensor to 0°, 45°, and 90°, comparing readings. | Pick one mounting orientation and document how much the reading changes at the others. Our estimate is under 20% variation near the chosen angle. |
+| L4 | Stability | Run the sensor for 48 hours in a fixed, constant light (a lamp on a timer-free circuit, or a closed box with a small light). | Drift under 5%. |
+| L5 | Day/night cycle | Place the sensor at the plant for 3 days and plot the readings. | Readings drop to near 0 lux at night (lights off), peak during the day, and the daily pattern looks consistent from day to day. |
+| L6 | Fault detection | Unplug the BH1750 mid-run, and separately cover it fully. | An unplugged sensor is logged as an error within 2 sample cycles, never recorded as "0 lux." Covering it is recorded as real darkness. |
+
+- **L1 note:** Phone lux apps are not reliable. If that's all we can borrow, we'll say so in the results and treat the number as rough.
+- **L6 why:** A disconnected sensor and a dark room can look similar if we aren't careful.
+
+---
+
+## Part 3: The two sensors together
+
+This is the part that tests our design claim that the sensors are *correlated* instead of just sitting next to each other.
+
+| ID | Test | Method | Target |
+|----|------|--------|--------|
+| C1 | Timestamp alignment | Check that each record's soil and light readings were taken close together. | The two readings in one record are within 1 second of each other. |
+| C2 | Does light change the dry-down rate? | Record dry-down cycles for the same plant or identical pots in a bright spot and a dim spot, with a similar starting moisture. | A clearly measurable difference in dry-down rate between the two spots. If we find no difference, that's an important result, and we'd need to rethink why we're using light at all. |
+| C3 | Light-adjusted prediction vs soil-only | Record at least 5 real dry-down cycles. At 12 hours before the plant crosses the dry threshold, predict "time until dry" two ways: using soil readings only, and using soil plus light. Compare both to what actually happened. | The light-adjusted prediction has lower median error than the soil-only one, and its median error is under 25% of the remaining time. |
+| C4 | "Needs water" flag vs a real check | Each time the device flags a plant as needing water, check the plant by weighing the pot or pushing a finger into the soil. Do this 20 times. | The flag agrees with the real check at least 90% of the time. |
+
+- **C3 note:** This is our weakest guess. We expect to revise the number, and that's fine as long as we document why.
+
+---
+
+## Part 4: Making sure the sensor data survives
+
+The sensors only matter if the log we build from them stays trustworthy. These tests cover our two graded mechanisms, D (crash-safe storage) and E (multi-process architecture with a supervisor).
+
+| ID | Test | Method | Target |
+|----|------|--------|--------|
+| P1 | Surviving `kill -9` on the writer *(correctness)* | Run a fake sensor feeder at about 1,000 records/s so a random kill actually lands mid-write. Kill the writer after a random delay, restart, and run the log checker. | 500 kills, 0 CRC failures mid-log, at most 1 record lost per kill, and a "recovered" event logged each time. |
+| P2 | Real power pulls *(correctness)* | Unplug the Pi mid-run, at the real once-a-minute rate and at the high rate. Reboot and run the checker. | 10 pulls, 0 unrecoverable logs, at most 1 record lost per pull. If a pull loses more than one record, the SD card may be reporting `fsync` as done too early, which is a real finding. |
+| P3 | Restart after a child process is killed *(correctness)* | Kill the soil process, the light process, and the hub at random moments, 200 times each, and time the restart. | Median restart under 5 s and p99 under 10 s. The surviving sensor keeps logging and the gap shows up in the event log. |
+| P4 | 48-hour soak with real sensors *(correctness)* | Run the full system unattended on the Pi with both real sensors for 48 hours, recording each process's memory (RSS) and open file counts every hour. | 2,880 records with no unexplained sequence gaps, RSS growth under 1 MB per process, constant fd counts, and 0 unplanned supervisor restarts. |
 
 
 ## Ownership Map
