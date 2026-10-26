@@ -8,7 +8,50 @@
 
 
 ## Failure-Mode Table
-
+**How to read this table.** For each component: how it can fail, how we detect it, what the system does about it, and what the log shows. The "Verified by" column points to the test that proves the row (IDs from the evaluation plan). `NEW` means we still need to write that test. Every log line below is a **draft**: once we inject the failure for real, we replace it with the line the system actually printed.
+ 
+**Log line format:** `<ISO time> <LEVEL> <component> <event> key=value ...`
+ 
+Thresholds in [brackets] are our first guesses and will be set from measurements.
+ 
+| # | Component | How it fails | How we detect it | What the system does | What the log shows (draft) | Verified by |
+|---|---|---|---|---|---|---|
+| 1 | Soil sensor | Wire loose or disconnected. The input may float or sit at a rail, and a floating ADC input does not always read a clean 0 or max. | Raw value outside [calibrated dry − margin, wet + margin], or noise far above normal | Soil field marked INVALID, never stored as a good reading. Analysis skips it. Light and hub keep running. Sampling continues, so it recovers when the wire is back. | `WARN soil invalid reason=out_of_range raw=1023 bounds=[310,720] seq=4812` | S6 |
+| 2 | Soil sensor | Stuck reading | Identical raw value for [60] consecutive samples. Real soil plus ADC noise rarely does this, but very stable soil might (see note). | Flag STUCK, log once, keep storing the raw value, exclude it from analysis | `WARN soil stuck value=512 samples=60 seq=4850` | S6 |
+| 3 | Soil sensor | Noise spike | Sample differs from the median of the last [5] by more than [N]% of span | Median-of-N filter discards the spike and counts it | `INFO soil spike_rejected raw=900 median=455 seq=4901` | S2 |
+| 4 | ADC | SPI or I2C transfer fails | The syscall returns an error (errno is logged) | Retry [3] times, then mark this cycle INVALID. After [5] failed cycles in a row, exit nonzero so the supervisor restarts the process. | `ERROR adc read_failed errno=5 attempt=3/3 seq=4902` | NEW (unplug the ADC, or disable SPI) |
+| 5 | ADC | Bad wiring returns a constant 0 or full-scale with no error. The transfer itself succeeds, so it looks like a real reading. | Same range and stuck checks as rows 1 and 2 | Same as rows 1 and 2 | `WARN soil invalid reason=out_of_range raw=0 seq=4903` | S6 |
+| 6 | BH1750 | Unplugged or not responding | I2C NACK or timeout on read | Light field marked INVALID and flagged separately. Never stored as 0 lux. Retried each cycle so it recovers when reconnected. | `ERROR light i2c_nack errno=121 seq=4920` then `INFO light recovered after_cycles=14 seq=4934` | L6 |
+| 7 | BH1750 | I2C bus hangs (for example SDA held low) and the read blocks | Read exceeds a [2 s] timeout, and the process heartbeat stops | Supervisor sends SIGTERM, then SIGKILL after [5 s], and restarts the light process. If the bus is still stuck after [3] restarts, mark light DEGRADED and keep logging soil only. | `WARN supervisor child=light heartbeat_missed age=35s` then `ERROR supervisor child=light killed signal=SIGKILL restart=1/3` | NEW (SIGSTOP the process to simulate a hang; this does not simulate a hung bus) |
+| 8 | BH1750 | Reading at the limit (full dark or saturated) | Raw count at 0 or at the sensor maximum | Dark is real data. At the maximum, store it with a SATURATED flag. | `INFO light saturated lux=65535 seq=5100` | L2 |
+| 9 | Sensor process | Crash (segfault, abort, nonzero exit) | Supervisor `waitpid()` reports the exit status or signal | Restart with exponential backoff ([1 s, 2 s, 4 s ... cap 60 s]). Other sensors are unaffected. | `ERROR supervisor child=soil pid=2210 died signal=11` then `INFO supervisor child=soil restart=1 delay=1s` then `INFO supervisor child=soil heartbeat pid=2231` | P3 |
+| 10 | Sensor process | Hang (alive but doing nothing) | No heartbeat for [30 s] (hard limit 60 s) | SIGTERM, then SIGKILL, then restart as in row 9 | As row 7 | P3 (add a SIGSTOP variant) |
+| 11 | Sensor process | Crash loop | More than [5] restarts in [5 min] | Stop fast restarts and hold at the backoff cap. Mark the child DEGRADED. Keep the rest of the system running. | `ERROR supervisor child=soil crash_loop restarts=5 window=300s state=DEGRADED` | NEW |
+| 12 | Hub | Crash or hang | Same as rows 9 and 10 | Restart. On startup it reads the last sequence number from the store so numbering continues. Readings during the downtime are lost, and the sequence gap shows it. | `INFO hub start resumed_seq=4813 gap=2` | P3 |
+| 13 | IPC | Message lost or malformed | Hub checks message length and version. Sender sees EPIPE or EAGAIN. | Drop the bad message and log it. The sender reconnects. | `WARN hub bad_message from=soil len=9 expected=16` | NEW |
+| 14 | Supervisor | Supervisor itself dies | External watcher: [systemd `Restart=always`]. If we don't use systemd, this is a single point of failure and we say so here. | systemd restarts it. On startup it kills any orphaned children so there are no duplicates. | journald: `supervisor.service: Main process exited` then ours: `INFO supervisor start orphans_killed=2` | NEW (`kill -9` the supervisor) |
+| 15 | Store | Torn write on power loss or `kill -9` | Short final record or CRC mismatch at the tail of the newest segment, checked on startup | Truncate at the last valid record and continue | `WARN store recovered segment=2026-10-25.log dropped_bytes=17 last_seq=4811` | P1, P2 |
+| 16 | Store | Corruption in the middle of a log (bit rot) | CRC mismatch on a record that isn't at the tail | Skip it. Fixed-size records let the reader resync at the next boundary. The gap is marked in the CSV export. | `ERROR store crc_mismatch segment=2026-10-25.log offset=2400 skipped=1` | NEW (flip bytes in a copy of a log) |
+| 17 | Store | Disk full | Write returns ENOSPC | Stop appending but keep sensing. Show DEGRADED on the LAN page. Events go to stderr and journald. | `ERROR store append_failed errno=28 seq=5200` | NEW (small loopback filesystem) |
+| 18 | SD card | Filesystem remounts read-only | Write returns EROFS or EIO | Same as row 17. A human has to fix it. | `ERROR store append_failed errno=30 seq=5201` | NEW |
+| 19 | Clock | Wrong time after reboot. We make no network calls, so there's no NTP, and the Pi's real-time clock needs a backup battery to keep time. | New timestamp earlier than the last stored one, or earlier than the build time | Flag the record TIME_UNSET. Rely on sequence numbers and the monotonic clock until the time is fixed. | `WARN clock backwards now=2026-01-01T00:00:03 last=2026-10-25T19:00:00 seq=5300` | NEW (set the clock back with `date`) |
+| 20 | Power | Brownout or under-voltage. The ADC reference can sag, which adds noise to readings. | Pi under-voltage flag (kernel message, or `vcgencmd get_throttled`). We need to confirm this works on the Pi 5. | Log it and flag samples taken during the event | `WARN power undervoltage seq=5400` | NEW |
+| 21 | Analysis | Wrong or unsupported prediction (no crash) | Too few dry-down cycles recorded, or recent data is INVALID or STUCK | Withhold the prediction and show "not enough data" | `INFO analysis prediction_withheld reason=insufficient_cycles have=2 need=3` | C3 |
+| 22 | LAN page | Process dies | Supervisor, as in row 9 | Restart. Logging is unaffected because processes are isolated. | As row 9 | P3 |
+ 
+**Note on row 2:** a stuck-sensor check can false-alarm in very stable soil. We measure how often it does on clean data, and we adjust the threshold or report the false-alarm rate here.
+ 
+## Failures we cannot detect
+ 
+The soak test grades this table's honesty, so these are listed on purpose. The log shows nothing for any of them.
+ 
+| Failure | Why we can't detect it | How we'd find out |
+|---|---|---|
+| Slow soil sensor drift or coating degradation | With one sensor, drift and real soil change look the same | Manual pot-weight check, test S5. We store raw values so we can recalibrate later. |
+| BH1750 reporting the wrong absolute lux | Cheap sensor, no trusted reference on board | Comparison against a reference in L1. We only claim relative light. |
+| Plausible but wrong soil reading (probe moved, air pocket around it) | It looks like valid data | Test S3 measures how much reinsertion changes readings. |
+| SD card reporting `fsync` complete before the data is durable | The card hides it from software | Only real power pulls (P2) can show it. |
+| Temperature effects on the soil sensor and on drying | No temperature sensor | Hand-recorded room temperature, listed under constraints. |
 
 ## Storage and Data
 What is stored?
