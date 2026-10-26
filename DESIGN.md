@@ -48,7 +48,21 @@ What happens when power dies mid-write?
 - To measure it: kill -9 the writer at random moments and do a few real power pulls, then confirm every recovery leaves a valid log with at most one record lost
 
 ## Constraints and Substitutions
+| | Ideal | What we're using | What the gap costs |
+|---|---|---|---|
+| Soil sensors | Several, across several pots, so they corroborate each other | One capacitive sensor, one pot | We can't cross-check readings, so we can't tell a sensor fault from real soil behavior. |
+| Plants | Several plants and soil types | One plant | Results describe this plant and pot only. |
+| Light sensor | Calibrated lux sensor, checked against a reference meter | Cheap BH1750 module of unknown quality, [no reference meter / phone app only] | We can't vouch for absolute lux values. We use light as a relative signal (brighter vs. dimmer, day vs. night), not as a measurement. |
+| Temperature | Temperature sensor beside the soil | None | Temperature affects both capacitive readings and drying speed. We can't separate it from moisture or light effects, so some of what we attribute to light may be temperature. |
+| Time | A full season of dry-down cycles | [N] weeks until the deadline, roughly [N] dry-down cycles | Too few cycles for strong prediction statistics. We report results as a small sample. |
+| Soil moisture reference | Lab-grade probe or oven-dry samples | Kitchen scale (pot weight) | Weight reflects the whole pot, not the soil at the probe. |
+| ADC | 16-bit (ADS1115) | [MCP3008, 10-bit / ADS1115] | [Fewer usable steps across the sensor's range] |
+| Power-loss testing | Many pulls on fresh SD cards | [10] pulls on one card | Limited by card wear. Most crash testing uses `kill -9` with a synthetic feeder. |
 
+### Narrowed claims
+- We claim the device predicts time-until-dry for **this plant in this pot**, within [X]% over [N] cycles. We do not claim it generalizes.
+- We treat light as a **relative** signal. We claim it reliably separates day from night and bright from dim, not that it reports true lux.
+- Without a temperature reading, we report any light-vs-dry-down relationship as a trend that temperature may also explain.
 
 ## Evaluation Plan
 Our device uses two sensors, a capacitive soil moisture sensor and a BH1750 light sensor, to tell us when a houseplant needs water and why. Our design doc says the biggest risk is that drift or noise makes the readings look confident but wrong. So this plan mostly tests the sensors themselves: are they accurate, stable, and actually useful together? A short last section checks that the data survives crashes and power loss.
