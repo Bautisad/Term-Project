@@ -16,14 +16,14 @@ Thresholds in [brackets] are our first guesses and will be set from measurements
  
 | # | Component | How it fails | How we detect it | What the system does | What the log shows (draft) | Verified by |
 |---|---|---|---|---|---|---|
-| 1 | Soil sensor | Wire loose or disconnected. The input may float or sit at a rail, and a floating ADC input does not always read a clean 0 or max. | Raw value outside [calibrated dry − margin, wet + margin], or noise far above normal | Soil field marked INVALID, never stored as a good reading. Analysis skips it. Light and hub keep running. Sampling continues, so it recovers when the wire is back. | `WARN soil invalid reason=out_of_range raw=1023 bounds=[310,720] seq=4812` | S6 |
-| 2 | Soil sensor | Stuck reading | Identical raw value for [60] consecutive samples. Real soil plus ADC noise rarely does this, but very stable soil might (see note). | Flag STUCK, log once, keep storing the raw value, exclude it from analysis | `WARN soil stuck value=512 samples=60 seq=4850` | S6 |
-| 3 | Soil sensor | Noise spike | Sample differs from the median of the last [5] by more than [N]% of span | Median-of-N filter discards the spike and counts it | `INFO soil spike_rejected raw=900 median=455 seq=4901` | S2 |
-| 4 | ADC | SPI or I2C transfer fails | The syscall returns an error (errno is logged) | Retry [3] times, then mark this cycle INVALID. After [5] failed cycles in a row, exit nonzero so the supervisor restarts the process. | `ERROR adc read_failed errno=5 attempt=3/3 seq=4902` | NEW (unplug the ADC, or disable SPI) |
+| 1 | Soil sensor | Wire loose or disconnected. The input may float or sit at a rail, and a floating ADC input does not always read a clean 0 or max. | Raw value outside [calibrated dry − margin, wet + margin], or noise far above normal | Soil field marked INVALID, never stored as a good reading. Analysis skips it. Light and hub keep running. Sampling continues, so it recovers when the wire is back. | `WARN soil invalid reason=out_of_range raw=32767 bounds=[10400,24000] seq=4812` | S6 |
+| 2 | Soil sensor | Stuck reading | Identical raw value for [60] consecutive samples. Real soil plus ADC noise rarely does this, but very stable soil might (see note). | Flag STUCK, log once, keep storing the raw value, exclude it from analysis | `WARN soil stuck value=14230 samples=60 seq=4850` | S6 |
+| 3 | Soil sensor | Noise spike | Sample differs from the median of the last [5] by more than [N]% of span | Median-of-N filter discards the spike and counts it | `INFO soil spike_rejected raw=29100 median=14620 seq=4901` | S2 |
+| 4 | ADC | I2C transfer to the ADS1115 fails | The syscall returns an error (errno is logged) | Retry [3] times, then mark this cycle INVALID. After [5] failed cycles in a row, exit nonzero so the supervisor restarts the process. | `ERROR adc read_failed errno=5 attempt=3/3 seq=4902` | NEW (unplug the ADS1115 SDA/SCL, or disable I2C) |
 | 5 | ADC | Bad wiring returns a constant 0 or full-scale with no error. The transfer itself succeeds, so it looks like a real reading. | Same range and stuck checks as rows 1 and 2 | Same as rows 1 and 2 | `WARN soil invalid reason=out_of_range raw=0 seq=4903` | S6 |
-| 6 | BH1750 | Unplugged or not responding | I2C NACK or timeout on read | Light field marked INVALID and flagged separately. Never stored as 0 lux. Retried each cycle so it recovers when reconnected. | `ERROR light i2c_nack errno=121 seq=4920` then `INFO light recovered after_cycles=14 seq=4934` | L6 |
-| 7 | BH1750 | I2C bus hangs (for example SDA held low) and the read blocks | Read exceeds a [2 s] timeout, and the process heartbeat stops | Supervisor sends SIGTERM, then SIGKILL after [5 s], and restarts the light process. If the bus is still stuck after [3] restarts, mark light DEGRADED and keep logging soil only. | `WARN supervisor child=light heartbeat_missed age=35s` then `ERROR supervisor child=light killed signal=SIGKILL restart=1/3` | NEW (SIGSTOP the process to simulate a hang; this does not simulate a hung bus) |
-| 8 | BH1750 | Reading at the limit (full dark or saturated) | Raw count at 0 or at the sensor maximum | Dark is real data. At the maximum, store it with a SATURATED flag. | `INFO light saturated lux=65535 seq=5100` | L2 |
+| 6 | Light sensor (LDR) | Unplugged or open circuit. A dark LDR is nearly an open circuit, so a disconnected one can look like darkness. | Raw value outside the range real darkness reaches, or stuck (same checks as rows 1 and 2). Bias resistor design [TBD] so an open input reads outside that range. | Light field marked INVALID and flagged separately. Never stored as a real dark reading. Retried each cycle so it recovers when reconnected. | `WARN light invalid reason=open_circuit raw=32767 seq=4920` then `INFO light recovered after_cycles=14 seq=4934` | L6 |
+| 7 | ADS1115 / I2C bus | I2C bus hangs (for example SDA held low) and the read blocks. The ADS1115 serves both sensors, so soil and light readings both stop. | Read exceeds a [2 s] timeout, and the process heartbeat stops | [Pending Andrew: depends on whether one process reads the ADS1115 or two share it with a lock.] Supervisor sends SIGTERM, then SIGKILL after [5 s], and restarts the reader process(es). If the bus is still stuck after [3] restarts, mark both sensors DEGRADED and keep the hub and store running. | `WARN supervisor child=adc heartbeat_missed age=35s` then `ERROR supervisor child=adc killed signal=SIGKILL restart=1/3` | NEW (SIGSTOP the process to simulate a hang; this does not simulate a hung bus) |
+| 8 | Light sensor (LDR) | Reading at the limit (very dark, or divider output clipped at the ADC range) | Raw count flat at the dark end or at the ADS1115 range limit | Dark is real data. At the range limit, store it with a SATURATED flag. | `INFO light saturated raw=32767 seq=5100` | L2 |
 | 9 | Sensor process | Crash (segfault, abort, nonzero exit) | Supervisor `waitpid()` reports the exit status or signal | Restart with exponential backoff ([1 s, 2 s, 4 s ... cap 60 s]). Other sensors are unaffected. | `ERROR supervisor child=soil pid=2210 died signal=11` then `INFO supervisor child=soil restart=1 delay=1s` then `INFO supervisor child=soil heartbeat pid=2231` | P3 |
 | 10 | Sensor process | Hang (alive but doing nothing) | No heartbeat for [30 s] (hard limit 60 s) | SIGTERM, then SIGKILL, then restart as in row 9 | As row 7 | P3 (add a SIGSTOP variant) |
 | 11 | Sensor process | Crash loop | More than [5] restarts in [5 min] | Stop fast restarts and hold at the backoff cap. Mark the child DEGRADED. Keep the rest of the system running. | `ERROR supervisor child=soil crash_loop restarts=5 window=300s state=DEGRADED` | NEW |
@@ -35,7 +35,7 @@ Thresholds in [brackets] are our first guesses and will be set from measurements
 | 17 | Store | Disk full | Write returns ENOSPC | Stop appending but keep sensing. Show DEGRADED on the LAN page. Events go to stderr and journald. | `ERROR store append_failed errno=28 seq=5200` | NEW (small loopback filesystem) |
 | 18 | SD card | Filesystem remounts read-only | Write returns EROFS or EIO | Same as row 17. A human has to fix it. | `ERROR store append_failed errno=30 seq=5201` | NEW |
 | 19 | Clock | Wrong time after reboot. We make no network calls, so there's no NTP, and the Pi's real-time clock needs a backup battery to keep time. | New timestamp earlier than the last stored one, or earlier than the build time | Flag the record TIME_UNSET. Rely on sequence numbers and the monotonic clock until the time is fixed. | `WARN clock backwards now=2026-01-01T00:00:03 last=2026-10-25T19:00:00 seq=5300` | NEW (set the clock back with `date`) |
-| 20 | Power | Brownout or under-voltage. The ADC reference can sag, which adds noise to readings. | Pi under-voltage flag (kernel message, or `vcgencmd get_throttled`). We need to confirm this works on the Pi 5. | Log it and flag samples taken during the event | `WARN power undervoltage seq=5400` | NEW |
+| 20 | Power | Brownout or under-voltage. The ADS1115 has its own internal reference, but the soil probe and the LDR divider run from the 3.3 V rail, so a sag shifts both readings. | Pi under-voltage flag (kernel message, or `vcgencmd get_throttled`). We need to confirm this works on the Pi 5. | Log it and flag samples taken during the event | `WARN power undervoltage seq=5400` | NEW |
 | 21 | Analysis | Wrong or unsupported prediction (no crash) | Too few dry-down cycles recorded, or recent data is INVALID or STUCK | Withhold the prediction and show "not enough data" | `INFO analysis prediction_withheld reason=insufficient_cycles have=2 need=3` | C3 |
 | 22 | LAN page | Process dies | Supervisor, as in row 9 | Restart. Logging is unaffected because processes are isolated. | As row 9 | P3 |
  
@@ -48,7 +48,7 @@ The soak test grades this table's honesty, so these are listed on purpose. The l
 | Failure | Why we can't detect it | How we'd find out |
 |---|---|---|
 | Slow soil sensor drift or coating degradation | With one sensor, drift and real soil change look the same | Manual pot-weight check, test S5. We store raw values so we can recalibrate later. |
-| BH1750 reporting the wrong absolute lux | Cheap sensor, no trusted reference on board | Comparison against a reference in L1. We only claim relative light. |
+| LDR giving a non-linear light value, or the wrong absolute lux | LDR response varies between parts and with temperature, and there is no trusted reference on board | Calibration curve against a reference in L1. We only claim relative light. |
 | Plausible but wrong soil reading (probe moved, air pocket around it) | It looks like valid data | Test S3 measures how much reinsertion changes readings. |
 | SD card reporting `fsync` complete before the data is durable | The card hides it from software | Only real power pulls (P2) can show it. |
 | Temperature effects on the soil sensor and on drying | No temperature sensor | Hand-recorded room temperature, listed under constraints. |
@@ -56,8 +56,8 @@ The soak test grades this table's honesty, so these are listed on purpose. The l
 ## Storage and Data
 What is stored?
 
-- One record per reading cycle: timestamp, sequence number, raw soil ADC value, light level in lux
-- Raw soil value (not calibrated percent) so you can recalibrate later when the sensor drifts
+- One record per reading cycle: timestamp, sequence number, raw soil ADC value, raw light ADC value
+- Raw soil and light values (not calibrated percent or lux) so you can recalibrate later when a sensor drifts
 - Supervisor events (sensor died, restarted, log recovered) go in a separate text log
 
 At what rate?
@@ -95,11 +95,11 @@ What happens when power dies mid-write?
 |---|---|---|---|
 | Soil sensors | Several, across several pots, so they corroborate each other | One capacitive sensor, one pot | We can't cross-check readings, so we can't tell a sensor fault from real soil behavior. |
 | Plants | Several plants and soil types | One plant | Results describe this plant and pot only. |
-| Light sensor | Calibrated lux sensor, checked against a reference meter | Cheap BH1750 module of unknown quality, [no reference meter / phone app only] | We can't vouch for absolute lux values. We use light as a relative signal (brighter vs. dimmer, day vs. night), not as a measurement. |
+| Light sensor | Calibrated lux sensor, checked against a reference meter | Bare LDR (5516-type photoresistor) in a voltage divider, read by the ADS1115, [no reference meter / phone app only] | LDR response is non-linear and varies between parts and with temperature, so we can't vouch for absolute lux or tight repeatability. We use light as a relative signal (brighter vs. dimmer, day vs. night), not as a measurement. |
 | Temperature | Temperature sensor beside the soil | None | Temperature affects both capacitive readings and drying speed. We can't separate it from moisture or light effects, so some of what we attribute to light may be temperature. |
 | Time | A full season of dry-down cycles | [N] weeks until the deadline, roughly [N] dry-down cycles | Too few cycles for strong prediction statistics. We report results as a small sample. |
 | Soil moisture reference | Lab-grade probe or oven-dry samples | Kitchen scale (pot weight) | Weight reflects the whole pot, not the soil at the probe. |
-| ADC | 16-bit (ADS1115) | [MCP3008, 10-bit / ADS1115] | [Fewer usable steps across the sensor's range] |
+| ADC | A separate ADC (or bus) per sensor | One ADS1115 (16-bit, I2C) shared by the soil sensor (A0) and the LDR (A1) | A chip or bus fault takes out both readings, which weakens the per-sensor isolation described in row 7. |
 | Power-loss testing | Many pulls on fresh SD cards | [10] pulls on one card | Limited by card wear. Most crash testing uses `kill -9` with a synthetic feeder. |
 
 ### Narrowed claims
@@ -108,7 +108,7 @@ What happens when power dies mid-write?
 - Without a temperature reading, we report any light-vs-dry-down relationship as a trend that temperature may also explain.
 
 ## Evaluation Plan
-Our device uses two sensors, a capacitive soil moisture sensor and a BH1750 light sensor, to tell us when a houseplant needs water and why. Our design doc says the biggest risk is that drift or noise makes the readings look confident but wrong. So this plan mostly tests the sensors themselves: are they accurate, stable, and actually useful together? A short last section checks that the data survives crashes and power loss.
+Our device uses two sensors, a capacitive soil moisture sensor and an LDR light sensor (both read through an ADS1115), to tell us when a houseplant needs water and why. Our design doc says the biggest risk is that drift or noise makes the readings look confident but wrong. So this plan mostly tests the sensors themselves: are they accurate, stable, and actually useful together? A short last section checks that the data survives crashes and power loss.
 
 Every measurement has a method and a target. We're writing the targets down before running anything so we can't quietly move the goalposts later. If we miss one, we record the result and figure out why instead of editing the number.
 
@@ -134,16 +134,16 @@ A note on the targets: most sensor targets below are our best guesses before we'
 
 ---
 
-## Part 2: Light sensor (BH1750)
+## Part 2: Light sensor (LDR)
 
 | ID | Test | Method | Target |
 |----|------|--------|--------|
-| L1 | Accuracy against a reference | Compare the BH1750 to a reference lux meter at 5 light levels (dark room, dim lamp, normal room light, bright lamp, near a window). | Within ±15% of the reference. |
-| L2 | Range and saturation | Record readings from darkness up to the brightest light the plant will ever get, such as a sunny window. Check the BH1750 datasheet for its maximum. | The sensor never saturates at the plant's actual location. If it does, we'll document where. |
+| L1 | Calibration against a reference | Compare the LDR reading to a reference lux meter at 5 light levels (dark room, dim lamp, normal room light, bright lamp, near a window). Fit raw reading against reference lux, as in S1. | The curve is monotonic and R² ≥ [0.9]. |
+| L2 | Range and saturation | Record readings from darkness up to the brightest light the plant will ever get, such as a sunny window. Check where the divider output flattens at the dark and bright ends, and note the ADS1115 range setting. | The reading never clips at the plant's actual location (stuck at the range limit or flat at the dark end). If it does, we'll document where. |
 | L3 | Angle sensitivity | Hold the light constant and rotate the sensor to 0°, 45°, and 90°, comparing readings. | Pick one mounting orientation and document how much the reading changes at the others. Our estimate is under 20% variation near the chosen angle. |
 | L4 | Stability | Run the sensor for 48 hours in a fixed, constant light (a lamp on a timer-free circuit, or a closed box with a small light). | Drift under 5%. |
-| L5 | Day/night cycle | Place the sensor at the plant for 3 days and plot the readings. | Readings drop to near 0 lux at night (lights off), peak during the day, and the daily pattern looks consistent from day to day. |
-| L6 | Fault detection | Unplug the BH1750 mid-run, and separately cover it fully. | An unplugged sensor is logged as an error within 2 sample cycles, never recorded as "0 lux." Covering it is recorded as real darkness. |
+| L5 | Day/night cycle | Place the sensor at the plant for 3 days and plot the readings. | Readings drop to near the dark-end reading at night (lights off), peak during the day, and the daily pattern looks consistent from day to day. |
+| L6 | Fault detection | Disconnect the LDR mid-run (open circuit), and separately cover it fully. | A disconnected LDR is logged as INVALID within 2 sample cycles, never recorded as a dark reading. Covering it is recorded as real darkness. This needs an open input to read differently from real darkness (see failure table row 6). |
 
 - **L1 note:** Phone lux apps are not reliable. If that's all we can borrow, we'll say so in the results and treat the number as rough.
 - **L6 why:** A disconnected sensor and a dark room can look similar if we aren't careful.
@@ -183,12 +183,12 @@ The sensors only matter if the log we build from them stays trustworthy. These t
 
 | Path | Purpose |
 |---|---|
-| src/sensors | One reader per sensor, each run as its own isolated child process. The soil reader gets raw values from the ADC (MCP3008 or ADS1115) and the light reader gets lux from the BH1750 over I2C. Each sends its readings to the hub and sends a heartbeat. A failure here must not affect the other sensor. |
+| src/sensors | One reader per sensor, each run as its own isolated child process. Both sensors are read through one ADS1115 over I2C: the soil reader gets raw values from channel [A0] and the light reader gets raw values from the LDR divider on [A1]. [Pending Andrew: one ADC-reader process, or two readers sharing the chip with a lock. A shared chip conflicts with the last sentence below.] Each sends its readings to the hub and sends a heartbeat. A failure here must not affect the other sensor. |
 | src/ipc | The communication layer between the supervisor, the hub and the sensor processes. It implements the messages defined in include/ipc.h. |
-| src/hub | The only writer. It collects the soil and light readings once per cycle (once a minute, optionally a median of several quick samples), builds one record (timestamp, sequence number, raw soil value, lux), and calls store_append. It notices a missing reading from a sensor. |
+| src/hub | The only writer. It collects the soil and light readings once per cycle (once a minute, optionally a median of several quick samples), builds one record (timestamp, sequence number, raw soil value, raw light value), and calls store_append. It notices a missing reading from a sensor. |
 | src/supervisor | Starts the hub and each sensor process, watches their exit codes and heartbeats (a heartbeat must arrive within 60s of start), and restarts or resets a failed one. It writes supervisor events to a separate text log. It must leave no orphaned file descriptors across a restart. |
 | Makefile | Build and test targets: make, make test, make asan, make memcheck, make soakcheck, make deploy. |
-| diagram.json and pin map | The wiring design: which Pi pins connect to the ADC and BH1750, which ADC channel the soil sensor uses, and the I2C address of the BH1750. |
+| diagram.json and pin map | The wiring design: which Pi pins connect to the ADS1115 (3.3 V, GND, SDA, SCL), which ADC channels the soil sensor and the LDR divider use, the ADS1115 I2C address ([0x48] with ADDR to GND), and the LDR divider resistor value. |
 
 ### Duke Bautista: mechanism D (storage layer), analysis, and the physical build
 
@@ -204,7 +204,7 @@ The sensors only matter if the log we build from them stays trustworthy. These t
 
 | File | Purpose |
 |---|---|
-| include/record.h | The on-disk record layout: field order and widths, byte order, size, and a way to mark a bad reading. The store writes it and the analysis reads it, so any change is a format change. The ADC choice sets the width of the raw soil field. |
+| include/record.h | The on-disk record layout: field order and widths, byte order, size, and a way to mark a bad reading. The store writes it and the analysis reads it, so any change is a format change. The ADS1115 is 16-bit, which sets the width of the raw soil and raw light fields. |
 | include/ipc.h | The messages the processes exchange: reading messages, the heartbeat, and the supervisor and child rules (exit codes, restart conditions). |
 | include/store.h | The storage API that the hub and analysis use: store_append, store_recover, store_read_range, with their signatures and error handling. |
 

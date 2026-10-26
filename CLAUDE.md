@@ -52,7 +52,8 @@ The project is a device for monitoring houseplant soil moisture and light exposu
 
 Planned hardware:
 - Capacitive Soil Moisture Sensor
-- BH1750 Light Sensor (ambient light readings are correlated with moisture readings to judge watering urgency)
+- LDR (photoresistor) light sensor in a voltage divider (ambient light readings are correlated with moisture readings to judge watering urgency)
+- ADS1115 16-bit I2C ADC (soil sensor on A0, LDR divider on A1)
 
 Planned architecture (from `PROBLEMMEMO.md`):
 - **Custom storage layer** — retains a history of moisture and light readings over multiple weeks (not just point-in-time values).
