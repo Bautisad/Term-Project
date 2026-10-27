@@ -27,7 +27,7 @@ logged. The 48-hour soak is the test suite of last resort.
 - Shared contracts: include/record.h, include/ipc.h, include/store.h.
   Frozen first; change only with both owners’ agreement.
 - Hardware bugs need pasted evidence from the Pi (dmesg, i2cdetect -y 1,
-  raw ADC read). Duke runs the tests and pastes; Andrew diagnoses.
+  raw sensor read, GPIO17 level). Duke runs the tests and pastes; Andrew diagnoses.
 - State whose session it is at the start of every session. The agent
   edits outside that owner’s area only when told explicitly.
 ## Style
@@ -51,9 +51,8 @@ This repository currently contains only planning documentation (`PROBLEMMEMO.md`
 The project is a device for monitoring houseplant soil moisture and light exposure, aimed at owners who under- or over-water plants due to unreliable manual moisture checks.
 
 Planned hardware:
-- Capacitive Soil Moisture Sensor
-- LDR (photoresistor) light sensor in a voltage divider (ambient light readings are correlated with moisture readings to judge watering urgency)
-- ADS1115 16-bit I2C ADC (soil sensor on A0, LDR divider on A1)
+- Adafruit STEMMA capacitive soil moisture sensor (I2C, address 0x36)
+- LM393 light module (LDR plus comparator) giving a digital bright/dark flag on GPIO17 (Pi pin 11), with the threshold set by the module's blue pot. There is no ADC. The bright/dark flag is correlated with moisture readings to judge watering urgency.
 
 Planned architecture (from `PROBLEMMEMO.md`):
 - **Custom storage layer** — retains a history of moisture and light readings over multiple weeks (not just point-in-time values).

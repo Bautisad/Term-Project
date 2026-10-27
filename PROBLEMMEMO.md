@@ -11,10 +11,10 @@ We can automate of sensing the soil moisture. It can be physically sit next to t
 
 ## The sensors
 Two sensors:
-- Capacitive Soil Moisture Sensor
-- BH1750 Light Sensor
+- Adafruit STEMMA capacitive soil moisture sensor (I2C)
+- LM393 light module with an LDR (digital output: bright or dark)
 These sensors are correlated with each other. Soil readings will determine if water is needed while the light sensor
-determines another factor of how soon the plant needs water.
+tells us whether the plant is in bright or dark conditions, which is another factor in how soon it needs water.
 
 ## The mechanisms
 D: Custom Storage Layer
