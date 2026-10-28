@@ -22,9 +22,13 @@ asan:
 	cmake --build --preset asan -j $(JOBS)
 	ctest --preset asan
 
+# supervisor_behavior is a shell script, so valgrind must wrap the binaries it starts
+# (via GT_VALGRIND), not the shell; exit code 99 keeps findings apart from the supervisor's 0/1.
 memcheck: all
-	cd build && ctest -T memcheck --output-on-failure --no-tests=error \
+	cd build && ctest -T memcheck -E supervisor_behavior --output-on-failure --no-tests=error \
 		--overwrite MemoryCheckCommandOptions="--leak-check=full --error-exitcode=1"
+	cd build && GT_VALGRIND="valgrind --trace-children=yes --leak-check=full --error-exitcode=99" \
+		ctest -R supervisor_behavior --output-on-failure --no-tests=error
 
 # 1-hour miniature of the 48h soak; the script lives in tools/ (Duke's area).
 soakcheck: all
