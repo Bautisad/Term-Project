@@ -86,6 +86,7 @@ wait_exit 5
 echo "SIGTERM stops a running child cleanly"
 start_sup run
 wait_count "start child=" 1 3
+wait_count "gt-fake-child: ready" 1 15 # SIGTERM before the child's handler exists kills it
 stop_sup
 [ "$(count 'exited code=0')" -eq 1 ] || fail "child did not exit 0 on SIGTERM"
 
