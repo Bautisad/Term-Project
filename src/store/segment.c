@@ -120,7 +120,9 @@ bool segment_parse(const char* name, int64_t* day)
     return true;
 }
 
-int segment_latest(int dir_fd, int64_t limit, int64_t* day)
+/* The one directory scan behind segment_latest and segment_next: the newest segment whose
+ * day is below bound, or (newest_below false) the oldest whose day is above it. */
+static int segment_scan(int dir_fd, int64_t bound, bool newest_below, int64_t* day)
 {
     int            fd = openat(dir_fd, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
     DIR*           dp;
@@ -150,7 +152,8 @@ int segment_latest(int dir_fd, int64_t limit, int64_t* day)
             err = errno;
             break;
         }
-        if (segment_parse(ent->d_name, &d) && d < limit && (!found || d > best)) {
+        if (segment_parse(ent->d_name, &d) &&
+            (newest_below ? d < bound && (!found || d > best) : d > bound && (!found || d < best))) {
             best = d;
             found = true;
         }
@@ -171,6 +174,16 @@ int segment_latest(int dir_fd, int64_t limit, int64_t* day)
     }
     *day = best;
     return 0;
+}
+
+int segment_latest(int dir_fd, int64_t limit, int64_t* day)
+{
+    return segment_scan(dir_fd, limit, true, day);
+}
+
+int segment_next(int dir_fd, int64_t after, int64_t* day)
+{
+    return segment_scan(dir_fd, after, false, day);
 }
 
 int segment_open(int dir_fd, int64_t day, bool* created)
@@ -208,8 +221,7 @@ int segment_open(int dir_fd, int64_t day, bool* created)
     return fd;
 }
 
-/* pread() until buf is full; a short file counts as EIO. */
-static int read_full_at(int fd, uint8_t* buf, size_t len, off_t off)
+int segment_pread(int fd, uint8_t* buf, size_t len, off_t off)
 {
     size_t got = 0;
 
@@ -262,7 +274,7 @@ int segment_check(int dir_fd, int64_t day, gt_record* last, bool* has_last)
     if (st.st_size > 0) {
         off_t at = st.st_size - (off_t)GT_RECORD_SIZE;
 
-        if (read_full_at(fd, buf, sizeof buf, at) != 0) {
+        if (segment_pread(fd, buf, sizeof buf, at) != 0) {
             err = errno;
             store_log("ERROR", "segment read failed segment=%s errno=%d", name, err);
             goto out;
@@ -289,7 +301,7 @@ static int read_record(int fd, off_t at, const char* name, gt_record* rec, bool*
 {
     uint8_t buf[GT_RECORD_SIZE];
 
-    if (read_full_at(fd, buf, sizeof buf, at) != 0) {
+    if (segment_pread(fd, buf, sizeof buf, at) != 0) {
         store_log("ERROR", "segment read failed segment=%s errno=%d", name, errno);
         return -1;
     }

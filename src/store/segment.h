@@ -5,7 +5,9 @@
 #define GT_SEGMENT_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
+#include <sys/types.h>
 
 #include "record.h"
 #include "store.h"
@@ -23,6 +25,12 @@ bool segment_parse(const char* name, int64_t* day);
 /* Finds the newest segment in the directory whose day is below limit (INT64_MAX for the
  * newest overall).  Returns 0 and sets *day, 1 when there is none, or -1 with errno set. */
 int segment_latest(int dir_fd, int64_t limit, int64_t* day);
+
+/* Finds the oldest segment whose day is above after.  Same returns as segment_latest. */
+int segment_next(int dir_fd, int64_t after, int64_t* day);
+
+/* pread() until buf is full; a short file counts as EIO.  Returns 0 or -1 with errno set. */
+int segment_pread(int fd, uint8_t* buf, size_t len, off_t off);
 
 /* Opens the segment for appending, creating it when missing.  A new segment is followed
  * by an fsync of the directory so the file cannot vanish after a crash.  *created tells
