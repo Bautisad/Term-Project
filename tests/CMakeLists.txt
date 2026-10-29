@@ -37,6 +37,15 @@ if(UNIX AND TARGET gt-feeder)
   set_tests_properties(feeder_smoke PROPERTIES TIMEOUT 120)
 endif()
 
+# kill -9 loop (tools/killloop.sh): passes, reports a failing or damaged store, stops on
+# request, repeats its delays for a seed, rejects bad arguments.
+if(UNIX AND TARGET gt-feeder AND TARGET gt-logcheck)
+  add_test(NAME killloop_behavior
+           COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/killloop_test.sh
+                   ${CMAKE_SOURCE_DIR}/tools/killloop.sh $<TARGET_FILE_DIR:gt-feeder>)
+  set_tests_properties(killloop_behavior PROPERTIES TIMEOUT 120)
+endif()
+
 # Log checker: clean and corrupted logs, seq gaps, writer-log and progress checks, and the
 # kill -9 / restart chain with the real feeder.
 if(UNIX AND TARGET gt-logcheck AND TARGET gt-feeder)
