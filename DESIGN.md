@@ -147,11 +147,11 @@ The glass of water reads below dry soil. That was repeatable in two runs and was
 
 | ID | Target | Measured | Result | Date | Notes |
 |----|--------|----------|--------|------|-------|
-| S1 | Monotonic, R² ≥ 0.9 | not run | | | |
-| S2 | Median-of-5 stdev under 1% of the range | not run | | | |
-| S3 | Reinsertion spread under 5% of the range | not run | | | |
-| S4 | Settles within 5% in 10 s | not run | | | |
-| S5 | Drift under 2% of the range over 48 h | not run | | | |
+| S1 | Monotonic, R² ≥ 0.9 | not run | DESCOPED | 2026-10-29 | Descoped by Duke, not measured. Consequence: no measured dry/wet range and no pot-weight calibration, so the draft bounds `[250,1100]` (failure table row 1) and the per-plant dry threshold are not calibrated. Affects #31, #43 and C4. |
+| S2 | Median-of-5 stdev under 1% of the range | 1.83% (7.52 counts); single reads 3.84% (15.84 counts); 100 reads, 797-853, 0 failed, 0 at 0xffff, range 565-977 | FAIL | 2026-10-29 | Target not met and not changed. For independent reads a median of 5 cuts the noise only to about 0.56x a single read; about 20 or more samples per cycle would be needed (estimate, untested). |
+| S3 | Reinsertion spread under 5% of the range | 33.25% (137 counts); 10 insertions, 702-839, falling over the run | FAIL | 2026-10-29 | Target not met and not changed. The values fall steadily (last five: 762, 734, 726, 709, 702). A 10-minute no-touch control stayed within 722-758 (36 counts), so ordinary drying does not explain the 137-count spread; reinsertion or soil disturbance does, at least in large part. The control's level (about 740) also differs from S2 (about 821), so placement or slow drying may add to it. Not repeated on stable soil; taken at face value. Setup instruction to add: fix the probe in place. |
+| S4 | Settles within 5% in 10 s | not run | DESCOPED | 2026-10-29 | Descoped by Duke, not measured. Consequence: no measured settle time after watering, so we cannot say how soon after watering a reading can be trusted. |
+| S5 | Drift under 2% of the range over 48 h | not run | DESCOPED | 2026-10-29 | Descoped by Duke, not measured. Consequence: our named risk (drift and corrosion of a cheap capacitive sensor) has no measured figure; any drift claim must say so. |
 
 ---
 
