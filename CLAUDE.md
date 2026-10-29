@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Project Green Thumb: team rules
 
 ## Commands
-- Build: ‘make‘ Cross/deploy: ‘make deploy dbautista@greenthumb.pi‘
+- Build: ‘make‘ Cross/deploy: ‘make deploy dbautista@greenthumb.local‘
 - Tests: ‘make test‘ Sanitizers: ‘make asan‘ Valgrind: ‘make memcheck‘
 - Soak sanity: ‘make soakcheck‘ (1-hour miniature of the 48h run)
 - A change is DONE only when build, test, and asan pass. Show output.
