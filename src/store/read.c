@@ -149,6 +149,7 @@ int store_read_range(const char* dir, uint64_t from_ms, uint64_t to_ms, gt_store
     r.to_ms = to_ms;
     r.visit = visit;
     r.ctx = ctx;
+    r.seen = from_ms == 0; /* no earlier edge: damage at the start of the log is in range */
 
     dir_fd = open(dir, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
     if (dir_fd < 0) {
@@ -161,6 +162,9 @@ int store_read_range(const char* dir, uint64_t from_ms, uint64_t to_ms, gt_store
      * it.  Newer ones can: a record stamped while the clock was wrong sits in the newest
      * segment, so every later segment is read. */
     rc = segment_next(dir_fd, segment_day(from_ms) - 1, &day);
+    if (rc < 0) {
+        err = errno; /* a failed scan is not an empty store */
+    }
     while (rc == 0 && !r.stop) {
         int64_t cur = day;
 

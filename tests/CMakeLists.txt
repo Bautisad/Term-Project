@@ -34,6 +34,17 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TARGET gt_store)
                       -Wl,--wrap=write -Wl,--wrap=fsync -Wl,--wrap=ftruncate)
   add_test(NAME store_failures COMMAND store_fault_test)
   set_tests_properties(store_failures PROPERTIES TIMEOUT 60)
+
+  # Fault-injection sweep over every libc call the store makes: the Nth call fails, for every N.
+  add_executable(store_sweep_test store_sweep_test.c)
+  target_link_libraries(store_sweep_test PRIVATE gt_store)
+  target_link_options(store_sweep_test PRIVATE
+                      -Wl,--wrap=open -Wl,--wrap=openat -Wl,--wrap=fstat -Wl,--wrap=pread
+                      -Wl,--wrap=readdir -Wl,--wrap=fdopendir -Wl,--wrap=closedir
+                      -Wl,--wrap=mkdir -Wl,--wrap=flock -Wl,--wrap=fsync -Wl,--wrap=ftruncate
+                      -Wl,--wrap=write -Wl,--wrap=close -Wl,--wrap=calloc -Wl,--wrap=gmtime_r)
+  add_test(NAME store_error_paths COMMAND store_sweep_test)
+  set_tests_properties(store_error_paths PROPERTIES TIMEOUT 300)
 endif()
 
 # Fake sensor feeder: run as a child process (count, resume, pacing, SIGTERM, SIGKILL,

@@ -27,6 +27,44 @@
 
 static const char* g_feeder;
 
+/* Feeders started and not yet reaped.  A failing CHECK exits the test with some of them still
+ * running (most are endless), so the exit handler kills and reaps whatever is left. */
+#define MAX_LIVE 16
+static pid_t g_live[MAX_LIVE];
+
+static void live_add(pid_t pid)
+{
+    for (size_t i = 0; i < MAX_LIVE; i++) {
+        if (g_live[i] == 0) {
+            g_live[i] = pid;
+            return;
+        }
+    }
+    (void)fprintf(stderr, "%s:%d: too many live feeders\n", __FILE__, __LINE__);
+    (void)kill(pid, SIGKILL);
+    exit(1);
+}
+
+static void live_remove(pid_t pid)
+{
+    for (size_t i = 0; i < MAX_LIVE; i++) {
+        if (g_live[i] == pid) {
+            g_live[i] = 0;
+        }
+    }
+}
+
+static void kill_live(void)
+{
+    for (size_t i = 0; i < MAX_LIVE; i++) {
+        if (g_live[i] != 0) {
+            (void)kill(g_live[i], SIGKILL);
+            (void)waitpid(g_live[i], NULL, 0);
+            g_live[i] = 0;
+        }
+    }
+}
+
 static void path_of(char* out, size_t cap, const char* dir, const char* name)
 {
     int n = snprintf(out, cap, "%s/%s", dir, name);
@@ -106,6 +144,7 @@ static pid_t spawn(const char* logfile, char* const args[])
         execv(g_feeder, argv);
         _exit(127);
     }
+    live_add(pid);
     return pid;
 }
 
@@ -115,6 +154,7 @@ static int reap(pid_t pid)
     int st;
 
     CHECK(waitpid(pid, &st, 0) == pid);
+    live_remove(pid);
     if (WIFEXITED(st)) {
         return WEXITSTATUS(st);
     }
@@ -270,6 +310,112 @@ static void test_sigterm(void)
     rm_tree(root);
 }
 
+/* The count from the feeder's "done records=N" line. */
+static unsigned long long reported_records(const char* text)
+{
+    const char*        done = strstr(text, "feeder done records=");
+    unsigned long long n = 0;
+
+    CHECK(done != NULL);
+    CHECK(sscanf(done, "feeder done records=%llu", &n) == 1);
+    return n;
+}
+
+/* One writer per store: a second feeder on the same directory is refused and writes nothing,
+ * the first carries on, and the lock is free again once the first has exited. */
+static void test_second_writer_refused(void)
+{
+    char               root[256];
+    char               store[300];
+    char               log_a[300];
+    char               log_b[300];
+    char               log_c[300];
+    char               text[8192];
+    char               needle[64];
+    char*              args_a[] = {"--dir", store, "--rate", "200", NULL};
+    char*              args_b[] = {"--dir", store, "--rate", "0", "--count", "10", NULL};
+    char*              args_c[] = {"--dir", store, "--rate", "0", "--count", "50", NULL};
+    unsigned long long n_a;
+    pid_t              pid;
+
+    make_tmp(root, sizeof root);
+    path_of(store, sizeof store, root, "store");
+    path_of(log_a, sizeof log_a, root, "a.log");
+    path_of(log_b, sizeof log_b, root, "b.log");
+    path_of(log_c, sizeof log_c, root, "c.log");
+    pid = spawn(log_a, args_a);
+    wait_started(log_a);
+
+    CHECK(run(log_b, args_b) == GT_EXIT_FATAL);
+    slurp(log_b, text, sizeof text);
+    CHECK(strstr(text, "lock failed errno=16") != NULL); /* EBUSY */
+    CHECK(strstr(text, "recover failed") != NULL);
+    CHECK(strstr(text, "feeder start ") == NULL);
+
+    sleep_ms(100);
+    CHECK(kill(pid, 0) == 0); /* the first writer is undisturbed */
+    CHECK(kill(pid, SIGTERM) == 0);
+    CHECK(reap(pid) == GT_EXIT_OK);
+    slurp(log_a, text, sizeof text);
+    n_a = reported_records(text);
+    CHECK(n_a > 0);
+    CHECK(verify_store(store) == n_a); /* contiguous, so the refused writer added nothing */
+
+    CHECK(run(log_c, args_c) == GT_EXIT_OK); /* the lock died with the first writer */
+    slurp(log_c, text, sizeof text);
+    CHECK(snprintf(needle, sizeof needle, "resumed_seq=%llu ", n_a + 1) > 0);
+    CHECK(strstr(text, needle) != NULL);
+    CHECK(verify_store(store) == n_a + 50);
+    rm_tree(root);
+}
+
+/* The reader takes no lock: against a writer running flat out, every read is clean (no bad
+ * record, no gap), and the log it sees only grows. */
+static void test_live_reader(void)
+{
+    char               root[256];
+    char               store[300];
+    char               log[300];
+    char               text[8192];
+    char*              args[] = {"--dir", store, "--rate", "0", NULL};
+    unsigned long long reported;
+    uint64_t           first = 0;
+    uint64_t           prev = 0;
+    int                grew = 0;
+    double             deadline;
+    pid_t              pid;
+
+    make_tmp(root, sizeof root);
+    path_of(store, sizeof store, root, "store");
+    path_of(log, sizeof log, root, "feeder.log");
+    pid = spawn(log, args);
+    wait_started(log);
+    deadline = now_s() + 30.0;
+    for (int reads = 0; reads < 50; reads++) {
+        verify v = {0, 0};
+
+        CHECK(now_s() < deadline);
+        CHECK(store_read_range(store, 0, UINT64_MAX, verify_fn, &v) == 0);
+        CHECK(v.n >= prev); /* never shrinks */
+        if (reads == 0) {
+            first = v.n;
+        }
+        if (v.n > first) {
+            grew = 1;
+        }
+        prev = v.n;
+        sleep_ms(20);
+    }
+    CHECK(grew); /* the reads overlapped the writer */
+    CHECK(kill(pid, SIGTERM) == 0);
+    CHECK(reap(pid) == GT_EXIT_OK);
+    slurp(log, text, sizeof text);
+    reported = reported_records(text);
+    CHECK(reported >= prev);
+    CHECK(verify_store(store) == reported);
+    rm_tree(root);
+}
+
 static void test_sigkill_then_restart(void)
 {
     char     root[256];
@@ -387,9 +533,12 @@ int main(int argc, char** argv)
 {
     CHECK(argc == 2);
     g_feeder = argv[1];
+    CHECK(atexit(kill_live) == 0);
     test_count_and_resume();
     test_pacing();
     test_sigterm();
+    test_second_writer_refused();
+    test_live_reader();
     test_sigkill_then_restart();
     test_progress_file();
     test_bad_arguments();

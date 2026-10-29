@@ -292,6 +292,35 @@ static void cut(const char* dir, const char* name, off_t len)
     CHECK(truncate(path, len) == 0);
 }
 
+/* Creates an empty dir/name, as a segment is when the process dies before its first record. */
+static void touch_file(const char* dir, const char* name)
+{
+    char path[512];
+    int  fd;
+
+    path_of(path, sizeof path, dir, name);
+    fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0644);
+    CHECK(fd >= 0 && close(fd) == 0);
+}
+
+/* Puts n junk bytes in front of dir/name, so its size is ragged yet it still ends in a whole,
+ * good record. */
+static void prepend_junk(const char* dir, const char* name, size_t n)
+{
+    uint8_t buf[512];
+    uint8_t junk[16];
+    char    path[512];
+    size_t  len = read_file(dir, name, buf, sizeof buf);
+    int     fd;
+
+    CHECK(n <= sizeof junk && len > 0);
+    memset(junk, 0xAB, sizeof junk);
+    path_of(path, sizeof path, dir, name);
+    fd = open(path, O_WRONLY | O_TRUNC);
+    CHECK(fd >= 0 && write(fd, junk, n) == (ssize_t)n && write(fd, buf, len) == (ssize_t)len);
+    CHECK(close(fd) == 0);
+}
+
 /* Damage beyond one interrupted write: store_recover refuses with EUCLEAN and the
  * segment is left byte for byte as it was. */
 static void expect_refused(const char* dir, const char* name)
@@ -421,6 +450,89 @@ static void test_recover_empties_newest(void)
     rm_tree(dir);
 }
 
+/* An empty newest segment (created, then the process died) makes recovery fall back to the
+ * older ones.  Only the newest segment is ever repaired: damage in an older one is refused with
+ * EUCLEAN and left alone. */
+static void test_recover_older_segments(void)
+{
+    char              dir[256];
+    gt_store*         s = NULL;
+    gt_store_recovery info;
+
+    make_tmp(dir, sizeof dir); /* a sound older segment: carry on from it */
+    fill(dir, 3);
+    touch_file(dir, SEG2);
+    CHECK(store_recover(dir, &s, &info) == 0);
+    CHECK(info.has_records == 1 && info.last_seq == 3 && info.dropped_bytes == 0);
+    CHECK(strcmp(info.segment, SEG2) == 0);
+    append_ok(s, T_DAY2 + 1000, 4);
+    store_close(s);
+    CHECK(file_size(dir, SEG1) == 3 * REC && file_size(dir, SEG2) == REC);
+    rm_tree(dir);
+
+    make_tmp(dir, sizeof dir); /* no record anywhere: a new log in the newest segment */
+    touch_file(dir, SEG1);
+    touch_file(dir, SEG2);
+    CHECK(store_recover(dir, &s, &info) == 0);
+    CHECK(info.has_records == 0 && strcmp(info.segment, SEG2) == 0);
+    append_ok(s, T_DAY2 + 1000, 1);
+    store_close(s);
+    CHECK(file_size(dir, SEG1) == 0 && file_size(dir, SEG2) == REC);
+    rm_tree(dir);
+
+    make_tmp(dir, sizeof dir); /* a ragged older segment is refused, not repaired */
+    fill(dir, 3);
+    touch_file(dir, SEG2);
+    cut(dir, SEG1, 3 * REC - 5);
+    expect_refused(dir, SEG1);
+    CHECK(file_size(dir, SEG2) == 0);
+    rm_tree(dir);
+
+    make_tmp(dir, sizeof dir); /* ragged by its size alone: the last 24 bytes are a good record */
+    fill(dir, 3);
+    touch_file(dir, SEG2);
+    prepend_junk(dir, SEG1, 7);
+    expect_refused(dir, SEG1);
+    CHECK(file_size(dir, SEG2) == 0);
+    rm_tree(dir);
+
+    make_tmp(dir, sizeof dir); /* so is an older segment whose last record fails its CRC */
+    fill(dir, 3);
+    touch_file(dir, SEG2);
+    flip(dir, SEG1, 2 * REC + 5);
+    expect_refused(dir, SEG1);
+    CHECK(file_size(dir, SEG2) == 0);
+    rm_tree(dir);
+}
+
+/* The next day's segment already exists but is not a whole number of records: the append is
+ * refused with EUCLEAN, nothing is written to it, and the store stays usable for today. */
+static void test_append_refuses_ragged_next_segment(void)
+{
+    char              dir[256];
+    gt_store*         s = NULL;
+    gt_store_recovery info;
+    gt_record         r = make_rec(T_DAY2 + 1000, 2);
+
+    make_tmp(dir, sizeof dir);
+    CHECK(store_recover(dir, &s, NULL) == 0);
+    append_ok(s, T_BASE, 1);
+    touch_file(dir, SEG2);
+    cut(dir, SEG2, 7);
+    errno = 0;
+    CHECK(store_append(s, &r) == -1 && errno == EUCLEAN);
+    CHECK(file_size(dir, SEG2) == 7);
+    append_ok(s, T_BASE + T_MIN, 2);
+    store_close(s);
+    CHECK(file_size(dir, SEG1) == 2 * REC);
+
+    CHECK(store_recover(dir, &s, &info) == 0); /* the next recovery repairs it */
+    CHECK(info.has_records == 1 && info.last_seq == 2 && info.dropped_bytes == 7);
+    store_close(s);
+    CHECK(file_size(dir, SEG2) == 0);
+    rm_tree(dir);
+}
+
 /* Runs store_recover on dir with stderr redirected to a file; the store's log lands in out. */
 static void recover_captured(const char* dir, char* out, size_t cap)
 {
@@ -519,6 +631,35 @@ static void expect_seqs(const collect* c, const uint32_t* want, size_t n)
         expect_seqs((c), want_, sizeof want_ / sizeof want_[0]);         \
     } while (0)
 
+/* Files that are not segments are ignored, even ones that sort after the real segment or
+ * look like a date that does not exist, and are never touched. */
+static void test_stray_files_ignored(void)
+{
+    static const char* const strays[] = {"2099-13-01.log", "2099-02-30.log", "20x3-11-14.log",
+                                         "2099-00-10.log", "2099-11-14.log.bak", "notes.txt"};
+    char                     dir[256];
+    gt_store*                s = NULL;
+    gt_store_recovery        info;
+    collect                  c;
+
+    make_tmp(dir, sizeof dir);
+    fill(dir, 3);
+    for (size_t i = 0; i < sizeof strays / sizeof strays[0]; i++) {
+        touch_file(dir, strays[i]);
+        cut(dir, strays[i], 2 * REC); /* zeros: would read as damaged records */
+    }
+    CHECK(store_recover(dir, &s, &info) == 0);
+    CHECK(info.has_records == 1 && info.last_seq == 3 && strcmp(info.segment, SEG1) == 0);
+    append_ok(s, T_BASE + 3 * T_MIN, 4);
+    store_close(s);
+    run_range(dir, 0, UINT64_MAX, &c);
+    EXPECT(&c, 1, 2, 3, 4);
+    for (size_t i = 0; i < sizeof strays / sizeof strays[0]; i++) {
+        CHECK(file_size(dir, strays[i]) == 2 * REC);
+    }
+    rm_tree(dir);
+}
+
 static void test_read_filters_by_time(void)
 {
     char      dir[256];
@@ -614,6 +755,47 @@ static void test_read_reports_corruption(void)
     flip(dir, SEG1, 3 * REC + 5);
     run_range(dir, 0, UINT64_MAX, &c);
     EXPECT(&c, 1, 2, 0, 0, 5, 6);
+    rm_tree(dir);
+}
+
+/* A query from time 0 has no earlier edge, so a bad record at the very start of the log is
+ * damage inside the range and is reported.  A query from a later time cannot place it. */
+static void test_read_reports_leading_corruption(void)
+{
+    char    dir[256];
+    uint8_t before[512];
+    uint8_t after[512];
+    collect c;
+    size_t  n;
+
+    make_tmp(dir, sizeof dir);
+    fill(dir, 5);
+    flip(dir, SEG1, 5); /* record 1, the first of the whole log */
+    n = read_file(dir, SEG1, before, sizeof before);
+    run_range(dir, 0, UINT64_MAX, &c);
+    EXPECT(&c, 0, 2, 3, 4, 5);
+    run_range(dir, 0, T_BASE + 3 * T_MIN, &c); /* records 1, 2, 3 */
+    EXPECT(&c, 0, 2, 3);
+    run_range(dir, T_BASE, UINT64_MAX, &c); /* from a real time: its edge cannot be trusted */
+    EXPECT(&c, 2, 3, 4, 5);
+    CHECK(read_file(dir, SEG1, after, sizeof after) == n && memcmp(before, after, n) == 0);
+    rm_tree(dir);
+
+    make_tmp(dir, sizeof dir); /* two bad records at the start are two gaps */
+    fill(dir, 5);
+    flip(dir, SEG1, 5);
+    flip(dir, SEG1, REC + 5);
+    run_range(dir, 0, UINT64_MAX, &c);
+    EXPECT(&c, 0, 0, 3, 4, 5);
+    rm_tree(dir);
+
+    make_tmp(dir, sizeof dir); /* nothing valid to place them before: nothing is reported */
+    fill(dir, 3);
+    flip(dir, SEG1, 5);
+    flip(dir, SEG1, REC + 5);
+    flip(dir, SEG1, 2 * REC + 5);
+    run_range(dir, 0, UINT64_MAX, &c);
+    CHECK(c.n == 0);
     rm_tree(dir);
 }
 
@@ -750,10 +932,14 @@ int main(void)
     test_recover_refuses_more_damage();
     test_recover_leaves_the_rest();
     test_recover_empties_newest();
+    test_recover_older_segments();
+    test_append_refuses_ragged_next_segment();
     test_recover_always_logs();
+    test_stray_files_ignored();
     test_read_filters_by_time();
     test_read_across_segments();
     test_read_reports_corruption();
+    test_read_reports_leading_corruption();
     test_read_corruption_across_segments();
     test_read_skips_torn_tail();
     test_read_early_stop_and_live_writer();
