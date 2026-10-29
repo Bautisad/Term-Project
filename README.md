@@ -95,13 +95,12 @@ sudo apt install build-essential cmake rsync valgrind gcc-aarch64-linux-gnu
 | `make test` | Builds, then runs the tests. |
 | `make asan` | Builds with AddressSanitizer and UBSan, then runs the tests. |
 | `make memcheck` | Runs the tests under Valgrind. |
-| `make soakcheck` | A 1-hour miniature of the 48-hour soak test. Not usable yet (see below). |
+| `make soakcheck` | A 1-hour miniature of the 48-hour soak test. For now it runs the fake sensor feeder, not the full system. It prints each process's memory and file counts, then PASS or the failed checks. |
 | `make deploy PI=pi@<host>` | Cross-compiles statically for the Pi 5 and copies the binaries to `~/greenthumb/bin` on the Pi. |
 
 A change counts as done only when `make`, `make test` and `make asan` all pass.
 
-Today this builds only `gt-supervisor` and a test helper. The other programs are built automatically once their source files exist. `make soakcheck` stops with a message until `tools/soakcheck.sh` is written.
-
+Today this builds only `gt-supervisor` and a test helper. The other programs are built automatically once their source files exist.
 ## Troubleshooting
 
 - **`36` is missing from `i2cdetect -y 1`:** check that I2C is enabled in `raspi-config` and that SDA (pin 3) and SCL (pin 5) are wired the right way round. Also check 3.3 V and GND on the soil sensor.
@@ -118,7 +117,7 @@ These are the parts still to come. The issue numbers are on the repository's iss
 - Test tools: fake sensor feeder, log checker, kill loop, CSV export (#41, #40, #39, #38)
 - Analysis: dry-down detection and time-until-dry (#27), light-adjusted prediction (#26)
 - LAN page (#25) and the "needs water" state on it (#43)
-- Sensor calibration tests and crash-safety runs (#32, #29, #30, #31, #28)
+- Sensor calibration tests and crash-safety runs (#32, #29, #30, #31)
 
 ## More reading
 

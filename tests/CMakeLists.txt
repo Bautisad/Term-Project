@@ -69,6 +69,15 @@ if(UNIX AND TARGET gt-feeder AND TARGET gt-logcheck)
   set_tests_properties(killloop_behavior PROPERTIES TIMEOUT 120)
 endif()
 
+# Soak check (tools/soakcheck.sh): passes, and fails on a dying feeder, fd or RSS growth, a
+# sequence gap, a rejected store, too few records and ERROR lines; bad arguments exit 2.
+if(UNIX AND TARGET gt-feeder AND TARGET gt-logcheck)
+  add_test(NAME soakcheck_behavior
+           COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/soakcheck_test.sh
+                   ${CMAKE_SOURCE_DIR}/tools/soakcheck.sh $<TARGET_FILE_DIR:gt-feeder>)
+  set_tests_properties(soakcheck_behavior PROPERTIES TIMEOUT 120)
+endif()
+
 # Log checker: clean and corrupted logs, seq gaps, writer-log and progress checks, and the
 # kill -9 / restart chain with the real feeder.
 if(UNIX AND TARGET gt-logcheck AND TARGET gt-feeder)
