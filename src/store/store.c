@@ -39,6 +39,21 @@ static int lock_dir(gt_store* s)
     return 0;
 }
 
+/* One line per successful recovery, so the log checker can count restarts: WARN when bytes
+ * were cut from the tail, INFO when the log was already clean. */
+static void log_recovered(const gt_store_recovery* info, const char* segment)
+{
+    const char* level = info->dropped_bytes > 0 ? "WARN" : "INFO";
+
+    if (info->has_records) {
+        store_log(level, "recovered segment=%s dropped_bytes=%llu last_seq=%u", segment,
+                  (unsigned long long)info->dropped_bytes, (unsigned)info->last_seq);
+    } else {
+        store_log(level, "recovered segment=%s dropped_bytes=%llu last_seq=none", segment,
+                  (unsigned long long)info->dropped_bytes);
+    }
+}
+
 /* Opens the newest segment for appending and reports the last sequence number.  An empty
  * newest segment (created, then the process died) falls back to the older ones. */
 static int scan_segments(gt_store* s, gt_store_recovery* info)
@@ -50,8 +65,12 @@ static int scan_segments(gt_store* s, gt_store_recovery* info)
     uint64_t    dropped = 0;
     int         rc = segment_latest(s->dir_fd, INT64_MAX, &newest);
 
-    if (rc != 0) {
-        return rc < 0 ? -1 : 0; /* 1: a new, empty store */
+    if (rc < 0) {
+        return -1;
+    }
+    if (rc > 0) { /* a new, empty store */
+        log_recovered(info, "none");
+        return 0;
     }
     day = newest;
     for (;;) {
@@ -85,13 +104,6 @@ static int scan_segments(gt_store* s, gt_store_recovery* info)
         return -1;
     }
     info->dropped_bytes = dropped;
-    if (dropped > 0 && info->has_records) {
-        store_log("WARN", "recovered segment=%s dropped_bytes=%llu last_seq=%u", info->segment,
-                  (unsigned long long)dropped, (unsigned)info->last_seq);
-    } else if (dropped > 0) {
-        store_log("WARN", "recovered segment=%s dropped_bytes=%llu last_seq=none", info->segment,
-                  (unsigned long long)dropped);
-    }
     s->seg_fd = segment_open(s->dir_fd, newest, &created);
     if (s->seg_fd < 0) {
         return -1;
@@ -102,6 +114,7 @@ static int scan_segments(gt_store* s, gt_store_recovery* info)
     }
     s->day = newest;
     s->good_len = st.st_size;
+    log_recovered(info, info->segment);
     return 0;
 }
 

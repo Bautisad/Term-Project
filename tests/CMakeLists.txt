@@ -36,3 +36,13 @@ if(UNIX AND TARGET gt-feeder)
            COMMAND gt-feeder --dir ${CMAKE_BINARY_DIR}/feeder_smoke --rate 0 --count 2000)
   set_tests_properties(feeder_smoke PROPERTIES TIMEOUT 120)
 endif()
+
+# Log checker: clean and corrupted logs, seq gaps, writer-log and progress checks, and the
+# kill -9 / restart chain with the real feeder.
+if(UNIX AND TARGET gt-logcheck AND TARGET gt-feeder)
+  add_executable(logcheck_test logcheck_test.c)
+  target_link_libraries(logcheck_test PRIVATE gt_store)
+  add_test(NAME logcheck_behavior
+           COMMAND logcheck_test $<TARGET_FILE:gt-logcheck> $<TARGET_FILE:gt-feeder>)
+  set_tests_properties(logcheck_behavior PROPERTIES TIMEOUT 120)
+endif()
