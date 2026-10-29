@@ -62,25 +62,38 @@ run -n 5 --max-delay-ms 50 --stop-on-fail --bin "$BIN" --checker "$FALSE" --work
 [ "$RC" = 1 ] || fail "stop-on-fail: expected exit 1, got $RC"
 contains "iterations=1 passed=0 failed=1" || fail "stop-on-fail: should stop after one iteration"
 
-# 5. Real damage is caught.  The wrapper flips a byte in the third record of the log (once the
-# log has at least six, so the damage is mid-log) and then runs the real checker.
-cat >"$WORK/flipchk.sh" <<EOF
+# 5. Real damage is caught, in the middle of the log and at its very first record.  The wrapper
+# flips a byte at offset OFFSET of the first segment once it is at least MINSIZE bytes long (so
+# the damaged record is not the torn tail), then runs the real checker.
+# flipper NAME OFFSET MINSIZE: writes $WORK/NAME.sh; it leaves $WORK/NAME.flipped when it fired.
+flipper() {
+    cat >"$WORK/$1.sh" <<EOF
 #!/bin/sh
-if [ ! -e "$WORK/flipped" ]; then
+if [ ! -e "$WORK/$1.flipped" ]; then
     seg=\$(ls "\$2"/*.log 2>/dev/null | head -n 1)
-    if [ -n "\$seg" ] && [ "\$(wc -c <"\$seg")" -ge 144 ]; then
-        printf '\377' | dd of="\$seg" bs=1 seek=53 conv=notrunc 2>/dev/null
-        : >"$WORK/flipped"
+    if [ -n "\$seg" ] && [ "\$(wc -c <"\$seg")" -ge $3 ]; then
+        printf '\377' | dd of="\$seg" bs=1 seek=$2 conv=notrunc 2>/dev/null
+        : >"$WORK/$1.flipped"
     fi
 fi
 exec "$BIN/gt-logcheck" "\$@"
 EOF
-chmod +x "$WORK/flipchk.sh"
-run -n 4 --max-delay-ms 200 --bin "$BIN" --checker "$WORK/flipchk.sh" --work "$WORK/w5"
-[ -e "$WORK/flipped" ] || fail "damage test: the log never grew enough to damage"
+    chmod +x "$WORK/$1.sh"
+}
+
+flipper mid 53 144 # the third record, once there are at least six
+run -n 4 --max-delay-ms 200 --bin "$BIN" --checker "$WORK/mid.sh" --work "$WORK/w5"
+[ -e "$WORK/mid.flipped" ] || fail "damage test: the log never grew enough to damage"
 [ "$RC" = 1 ] || fail "damage test: expected exit 1, got $RC"
 contains "FAIL" || fail "damage test: no FAIL reported"
 grep -q 'corrupt=1' "$WORK/w5/checks.log" || fail "damage test: checker did not see the corrupt record"
+
+flipper first 5 72 # the first record of the log, once there are at least three
+run -n 4 --max-delay-ms 200 --bin "$BIN" --checker "$WORK/first.sh" --work "$WORK/w5b"
+[ -e "$WORK/first.flipped" ] || fail "first-record damage test: the log never grew enough"
+[ "$RC" = 1 ] || fail "first-record damage test: expected exit 1, got $RC"
+contains "FAIL" || fail "first-record damage test: no FAIL reported"
+grep -q 'corrupt=1' "$WORK/w5b/checks.log" || fail "first-record damage test: not seen as corrupt"
 
 # 6. The same seed gives the same delays.
 run -n 3 --seed 7 --max-delay-ms 100 --bin "$BIN" --work "$WORK/w6a"

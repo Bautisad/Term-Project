@@ -301,6 +301,16 @@ static void test_corruption(void)
     CHECK(strstr(out, "corrupt=1") != NULL && strstr(out, "FAIL 1 record(s) failed their CRC") != NULL);
     rm_tree(e.root);
 
+    /* The very first record of the log is mid-log damage too, not a torn tail. */
+    env_init(&e);
+    build_clean(e.store, 10);
+    args[1] = e.store;
+    flip(e.store, SEG1, 5);
+    CHECK(checker(e.root, args, out, sizeof out) == 1);
+    CHECK(strstr(out, "records=9 first_seq=2 ") != NULL && strstr(out, "corrupt=1") != NULL);
+    CHECK(strstr(out, "FAIL 1 record(s) failed their CRC") != NULL);
+    rm_tree(e.root);
+
     /* Damage at the tail of the newest segment is a torn write the next recovery repairs. */
     env_init(&e);
     build_clean(e.store, 10);
