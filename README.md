@@ -49,7 +49,7 @@ Run these on the Pi. If any step does not match, stop and see [Troubleshooting](
    ```
    sudo i2cdetect -y 1
    ```
-   The grid should show `36`.
+   The grid should show `36`. `i2cdetect` leaves the soil sensor returning `0xffff` (65535) on the next read, so expect that in step 2 and read again. The reads after it are normal.
 
 2. **Read the soil sensor.**
    ```
@@ -63,7 +63,7 @@ Run these on the Pi. If any step does not match, stop and see [Troubleshooting](
    | Very dry soil | about 565 |
    | Wet soil | about 977 |
 
-   Your numbers will differ with your sensor, soil and insertion depth. Push the probe in up to the white line and wait about ten seconds before reading. The first read after moving the probe is often off, so take several.
+   Your numbers will differ with your sensor, soil and insertion depth. Push the probe in up to the white line and wait about ten seconds before reading. The first read after moving the probe is often off, so take several. Fix the probe in place and do not move it between readings: in our test, pulling it out and pushing it back in ten times changed the reading by up to 137 counts, a third of the dry-to-wet range.
 
    Do not use a glass of water as the wet reference. In our build it read about 522, lower than dry soil, and we have not explained why. Use wet soil.
 
@@ -104,6 +104,8 @@ Today this builds only `gt-supervisor` and a test helper. The other programs are
 ## Troubleshooting
 
 - **`36` is missing from `i2cdetect -y 1`:** check that I2C is enabled in `raspi-config` and that SDA (pin 3) and SCL (pin 5) are wired the right way round. Also check 3.3 V and GND on the soil sensor.
+- **The first soil read is `0xffff` (65535):** you probably ran `i2cdetect` just before. In our tests this happened on the first read after `i2cdetect` every time (3 of 3) and never otherwise (10 of 10). Read again; the next reads are normal. Do not run `i2cdetect` right before a measurement.
+- **The soil reading jumps after you moved the probe:** see step 2 above. Fix the probe in place and wait about ten seconds after placing it.
 - **`get_throttled` is not `0x0`:** use a proper Pi 5 power supply and a short, good cable.
 - **The light output never changes:** check 3.3 V, GND and the DO wire on pin 11, then turn the blue pot. The module's DO LED should flip when the light crosses the threshold.
 - **Reporting a hardware problem:** include the output of `dmesg | tail -50`, `i2cdetect -y 1`, a raw sensor read, and the GPIO17 level. A description alone is not enough to diagnose it.
