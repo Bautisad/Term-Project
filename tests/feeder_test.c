@@ -301,6 +301,56 @@ static void test_sigkill_then_restart(void)
     rm_tree(root);
 }
 
+/* The progress file: 4 bytes, little-endian, the last seq the store acknowledged. */
+static uint32_t read_progress(const char* path)
+{
+    uint8_t b[5];
+    FILE*   f = fopen(path, "rb");
+
+    CHECK(f != NULL);
+    CHECK(fread(b, 1, sizeof b, f) == 4); /* exactly four bytes */
+    CHECK(fclose(f) == 0);
+    return (uint32_t)b[0] | (uint32_t)b[1] << 8 | (uint32_t)b[2] << 16 | (uint32_t)b[3] << 24;
+}
+
+static void test_progress_file(void)
+{
+    char     root[256];
+    char     store[300];
+    char     log[300];
+    char     prog[300];
+    char     bad[300];
+    char*    counted[] = {"--dir", store, "--rate", "0", "--count", "500", "--progress", prog, NULL};
+    char*    endless[] = {"--dir", store, "--progress", prog, NULL};
+    char*    unwritable[] = {"--dir", store, "--count", "1", "--progress", bad, NULL};
+    pid_t    pid;
+    uint64_t n;
+    uint32_t acked;
+
+    make_tmp(root, sizeof root);
+    path_of(store, sizeof store, root, "store");
+    path_of(log, sizeof log, root, "feeder.log");
+    path_of(prog, sizeof prog, root, "progress");
+    path_of(bad, sizeof bad, root, "missing-dir/progress");
+
+    CHECK(run(log, counted) == GT_EXIT_OK);
+    CHECK(read_progress(prog) == 500);
+
+    /* Killed mid-run: the page-cache write survives, and trails the log by at most the one
+     * record that was acknowledged just before the kill. */
+    pid = spawn(log, endless);
+    wait_started(log);
+    sleep_ms(200);
+    CHECK(kill(pid, SIGKILL) == 0);
+    CHECK(reap(pid) == 128 + SIGKILL);
+    n = verify_store(store);
+    acked = read_progress(prog);
+    CHECK(n > 500 && acked <= n && n - acked <= 1);
+
+    CHECK(run(log, unwritable) == GT_EXIT_FATAL);
+    rm_tree(root);
+}
+
 static void test_bad_arguments(void)
 {
     char  root[256];
@@ -341,6 +391,7 @@ int main(int argc, char** argv)
     test_pacing();
     test_sigterm();
     test_sigkill_then_restart();
+    test_progress_file();
     test_bad_arguments();
     (void)puts("PASS");
     return 0;

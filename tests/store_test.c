@@ -421,6 +421,59 @@ static void test_recover_empties_newest(void)
     rm_tree(dir);
 }
 
+/* Runs store_recover on dir with stderr redirected to a file; the store's log lands in out. */
+static void recover_captured(const char* dir, char* out, size_t cap)
+{
+    const char* base = getenv("TMPDIR");
+    char        tpl[256];
+    gt_store*   s = NULL;
+    ssize_t     n;
+    int         saved;
+    int         rc;
+    int         fd;
+
+    CHECK(snprintf(tpl, sizeof tpl, "%s/gt-store-log-XXXXXX", base != NULL ? base : "/tmp") > 0);
+    fd = mkstemp(tpl);
+    CHECK(fd >= 0);
+    CHECK(fflush(stderr) == 0);
+    saved = dup(STDERR_FILENO);
+    CHECK(saved >= 0 && dup2(fd, STDERR_FILENO) >= 0);
+    rc = store_recover(dir, &s, NULL);
+    CHECK(fflush(stderr) == 0);
+    CHECK(dup2(saved, STDERR_FILENO) >= 0 && close(saved) == 0);
+    n = pread(fd, out, cap - 1, 0);
+    CHECK(n >= 0);
+    out[n] = '\0';
+    CHECK(close(fd) == 0 && unlink(tpl) == 0);
+    CHECK(rc == 0);
+    store_close(s);
+}
+
+/* Every recovery is logged, so a checker can count restarts: INFO when nothing was cut,
+ * WARN when a torn tail was. */
+static void test_recover_always_logs(void)
+{
+    char dir[256];
+    char log[1024];
+
+    make_tmp(dir, sizeof dir);
+    recover_captured(dir, log, sizeof log); /* a new, empty store */
+    CHECK(strstr(log, " INFO store recovered segment=none dropped_bytes=0 last_seq=none") != NULL);
+    rm_tree(dir);
+
+    make_tmp(dir, sizeof dir);
+    fill(dir, 3);
+    recover_captured(dir, log, sizeof log); /* a clean log */
+    CHECK(strstr(log, " INFO store recovered segment=" SEG1 " dropped_bytes=0 last_seq=3") != NULL);
+    CHECK(strstr(log, "WARN") == NULL);
+    cut(dir, SEG1, 3 * REC - 5);
+    recover_captured(dir, log, sizeof log); /* a torn tail: 19 bytes of the third record */
+    CHECK(strstr(log, " WARN store recovered segment=" SEG1 " dropped_bytes=19 last_seq=2") != NULL);
+    recover_captured(dir, log, sizeof log); /* repaired, so clean again */
+    CHECK(strstr(log, " INFO store recovered segment=" SEG1 " dropped_bytes=0 last_seq=2") != NULL);
+    rm_tree(dir);
+}
+
 /* What the reader showed us, in order.  A corrupt record has seq 0 (every field is zero). */
 typedef struct collect {
     uint32_t seq[64];
@@ -697,6 +750,7 @@ int main(void)
     test_recover_refuses_more_damage();
     test_recover_leaves_the_rest();
     test_recover_empties_newest();
+    test_recover_always_logs();
     test_read_filters_by_time();
     test_read_across_segments();
     test_read_reports_corruption();

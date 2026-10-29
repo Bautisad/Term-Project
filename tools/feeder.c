@@ -4,6 +4,7 @@
  * Every field of record N is a pure function of N, so a checker can recompute and compare
  * it.  Timestamps are the real wall clock, so they do not go backwards across restarts. */
 #include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -12,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "ipc.h"
 #include "record.h"
@@ -51,11 +53,14 @@ static void feeder_log(const char* level, const char* fmt, ...)
 static void usage(FILE* out)
 {
     (void)fprintf(out,
-                  "usage: gt-feeder --dir DIR [--rate N] [--count N]\n"
+                  "usage: gt-feeder --dir DIR [--rate N] [--count N] [--progress FILE]\n"
                   "  --dir DIR    store directory (created if missing; resumes after the last record)\n"
                   "  --rate N     records per second, default %u, 0 = as fast as the disk allows\n"
                   "               (every record is fsynced, so the disk sets the ceiling)\n"
                   "  --count N    stop after N records, default 0 = run until SIGTERM or SIGINT\n"
+                  "  --progress FILE  after each append, record its seq there (4 bytes, little-endian,\n"
+                  "               no fsync, so it survives kill -9): the log checker uses it to prove no\n"
+                  "               acknowledged record was lost\n"
                   "At 1000 records/s the log grows by about 86 MB per hour.\n",
                   RATE_DEFAULT);
 }
@@ -86,6 +91,24 @@ static void make_record(uint32_t seq, uint64_t now_ms, gt_record* rec)
     rec->flags = (seq % 2u != 0u) ? GT_REC_LIGHT_BRIGHT : 0u;
     rec->light_bright_ms = (uint16_t)((seq * 13u) % 60001u);
     rec->light_edges = (uint16_t)(seq % 7u);
+}
+
+/* Records the last acknowledged seq at offset 0 of the progress file. */
+static int write_progress(int fd, uint32_t seq)
+{
+    uint8_t buf[4] = {(uint8_t)seq, (uint8_t)(seq >> 8), (uint8_t)(seq >> 16), (uint8_t)(seq >> 24)};
+    ssize_t n;
+
+    do {
+        n = pwrite(fd, buf, sizeof buf, 0);
+    } while (n < 0 && errno == EINTR);
+    if (n != (ssize_t)sizeof buf) {
+        if (n >= 0) {
+            errno = EIO;
+        }
+        return -1;
+    }
+    return 0;
 }
 
 static uint64_t wall_ms(void)
@@ -131,13 +154,15 @@ static void pace(struct timespec* deadline, int64_t period_ns)
 int main(int argc, char** argv)
 {
     const char*       dir = NULL;
+    const char*       progress = NULL;
+    int               progress_fd = -1;
     uint64_t          rate = RATE_DEFAULT;
     uint64_t          count = 0;
     gt_store*         store = NULL;
     gt_store_recovery info;
     struct sigaction  sa;
-    struct timespec   t0;
-    struct timespec   t1;
+    struct timespec   t0 = {0, 0};
+    struct timespec   t1 = {0, 0};
     struct timespec   deadline;
     uint64_t          done = 0;
     uint32_t          seq;
@@ -152,6 +177,8 @@ int main(int argc, char** argv)
         }
         if (strcmp(argv[i], "--dir") == 0 && has_val) {
             dir = argv[++i];
+        } else if (strcmp(argv[i], "--progress") == 0 && has_val) {
+            progress = argv[++i];
         } else if (strcmp(argv[i], "--rate") == 0 && has_val && parse_u64(argv[i + 1], RATE_MAX, &rate)) {
             i++;
         } else if (strcmp(argv[i], "--count") == 0 && has_val && parse_u64(argv[i + 1], UINT32_MAX, &count)) {
@@ -190,6 +217,14 @@ int main(int argc, char** argv)
         status = GT_EXIT_FATAL;
         goto out;
     }
+    if (progress != NULL) {
+        progress_fd = open(progress, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
+        if (progress_fd < 0) {
+            feeder_log("ERROR", "progress open failed path=%s errno=%d", progress, errno);
+            status = GT_EXIT_FATAL;
+            goto out;
+        }
+    }
     deadline = t0;
     while (!g_stop && (count == 0 || done < count)) {
         gt_record rec;
@@ -205,6 +240,11 @@ int main(int argc, char** argv)
             status = GT_EXIT_FATAL;
             break;
         }
+        if (progress_fd >= 0 && write_progress(progress_fd, seq) != 0) {
+            feeder_log("ERROR", "progress write failed seq=%u errno=%d", (unsigned)seq, errno);
+            status = GT_EXIT_FATAL;
+            break;
+        }
         seq++;
         done++;
         if (rate != 0 && !g_stop && (count == 0 || done < count)) {
@@ -213,6 +253,10 @@ int main(int argc, char** argv)
     }
 
 out:
+    if (progress_fd >= 0 && close(progress_fd) != 0) {
+        feeder_log("ERROR", "progress close failed errno=%d", errno);
+        status = GT_EXIT_FATAL;
+    }
     store_close(store);
     if (clock_gettime(CLOCK_MONOTONIC, &t1) != 0) {
         t1 = t0;
