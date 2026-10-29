@@ -78,6 +78,16 @@ if(UNIX AND TARGET gt-csv)
   set_tests_properties(csvexport_behavior PROPERTIES TIMEOUT 60)
 endif()
 
+# Soil test tools (S1-S5): soilread.sh against a fake i2ctransfer (every read logged, 0xffff
+# kept, failures logged, SIGTERM, arguments) and soilstats.sh on files with known answers
+# (pass, fail and boundary for each test).
+if(UNIX)
+  add_test(NAME soiltools_behavior
+           COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/soiltools_test.sh
+                   ${CMAKE_SOURCE_DIR}/tools/soilread.sh ${CMAKE_SOURCE_DIR}/tools/soilstats.sh)
+  set_tests_properties(soiltools_behavior PROPERTIES TIMEOUT 120)
+endif()
+
 # Soak check (tools/soakcheck.sh): passes, and fails on a dying feeder, fd or RSS growth, a
 # sequence gap, a rejected store, too few records and ERROR lines; bad arguments exit 2.
 if(UNIX AND TARGET gt-feeder AND TARGET gt-logcheck)
