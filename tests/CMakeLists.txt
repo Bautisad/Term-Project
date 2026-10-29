@@ -24,6 +24,18 @@ if(UNIX AND TARGET gt_store)
   set_tests_properties(store_append PROPERTIES TIMEOUT 60)
 endif()
 
+# Disk-full, read-only and EIO handling. ENOSPC/EROFS come from a real 64 KB tmpfs in a
+# private user+mount namespace; EIO and failures with the file already open are injected by
+# wrapping write/fsync/ftruncate at link time (GNU ld), so the store itself is untouched.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TARGET gt_store)
+  add_executable(store_fault_test store_fault_test.c)
+  target_link_libraries(store_fault_test PRIVATE gt_store)
+  target_link_options(store_fault_test PRIVATE
+                      -Wl,--wrap=write -Wl,--wrap=fsync -Wl,--wrap=ftruncate)
+  add_test(NAME store_failures COMMAND store_fault_test)
+  set_tests_properties(store_failures PROPERTIES TIMEOUT 60)
+endif()
+
 # Fake sensor feeder: run as a child process (count, resume, pacing, SIGTERM, SIGKILL,
 # bad arguments), then on its own so `make memcheck` runs the feeder itself under Valgrind.
 # feeder_smoke keeps its directory between runs, so it also exercises the resume path.
