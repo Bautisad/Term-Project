@@ -12,4 +12,7 @@ if(UNIX AND TARGET gt_store)
   add_executable(gt-logcheck logcheck.c)
   target_link_libraries(gt-logcheck PRIVATE gt_store)
   install(TARGETS gt-logcheck RUNTIME DESTINATION bin)
+
+  # killloop.sh: the P1 driver. Installed next to the binaries it runs, for the Pi.
+  install(PROGRAMS killloop.sh DESTINATION bin)
 endif()
