@@ -16,7 +16,7 @@ Thresholds in [brackets] are our first guesses and will be set from measurements
  
 | # | Component | How it fails | How we detect it | What the system does | What the log shows (draft) | Verified by |
 |---|---|---|---|---|---|---|
-| 1 | Soil sensor | Wire loose or disconnected. The I2C read may fail outright (row 4) or return a value stuck at 0 or full scale (row 5). | Raw value outside [calibrated dry − margin, wet + margin], or noise far above normal | Soil field marked INVALID, never stored as a good reading. Analysis skips it. Light and hub keep running. Sampling continues, so it recovers when the wire is back. | `WARN soil invalid reason=out_of_range raw=32767 bounds=[10400,24000] seq=4812` | S6 |
+| 1 | Soil sensor | Wire loose or disconnected. The I2C read may fail outright (row 4) or return a value stuck at 0 or full scale (row 5). | Raw value outside [calibrated dry − margin, wet + margin], or noise far above normal | Soil field marked INVALID, never stored as a good reading. Analysis skips it. Light and hub keep running. Sampling continues, so it recovers when the wire is back. | `WARN soil invalid reason=out_of_range raw=32767 bounds=[250,1100] seq=4812` | S6 |
 | 2 | Soil sensor | Stuck reading | Identical raw value for [60] consecutive samples. Real soil plus sensor noise rarely does this, but very stable soil might (see note). | Flag STUCK, log once, keep storing the raw value, exclude it from analysis | `WARN soil stuck value=14230 samples=60 seq=4850` | S6 |
 | 3 | Soil sensor | Noise spike | Sample differs from the median of the last [5] by more than [N]% of span | Median-of-N filter discards the spike and counts it | `INFO soil spike_rejected raw=29100 median=14620 seq=4901` | S2 |
 | 4 | Soil sensor (I2C) | I2C transfer to the soil sensor (0x36) fails | The syscall returns an error (errno is logged) | Retry [3] times, then mark this cycle INVALID. After [5] failed cycles in a row, exit nonzero so the supervisor restarts the process. | `ERROR soil read_failed errno=5 attempt=3/3 seq=4902` | NEW (unplug the soil sensor SDA/SCL, or disable I2C) |
@@ -47,7 +47,7 @@ The soak test grades this table's honesty, so these are listed on purpose. The l
 | Failure | Why we can't detect it | How we'd find out |
 |---|---|---|
 | Slow soil sensor drift or coating degradation | With one sensor, drift and real soil change look the same | Manual pot-weight check, test S5. We store raw values so we can recalibrate later. |
-| Threshold set wrong (blue pot), so the flag flips at the wrong light level | The module reports only a flag, and there is no trusted reference on board | Threshold check against a reference in L1. We only claim bright/dark at the pot's threshold. |
+| Threshold set wrong (blue pot), so the flag flips at the wrong light level | The module reports only a flag, and there is no trusted reference on board | None. The threshold was set by eye once and is never checked against a reference. We only claim bright/dark at the pot's setting. |
 | Plausible but wrong soil reading (probe moved, air pocket around it) | It looks like valid data | Test S3 measures how much reinsertion changes readings. |
 | SD card reporting `fsync` complete before the data is durable | The card hides it from software | Only real power pulls (P2) can show it. |
 | Temperature effects on the soil sensor and on drying | No temperature sensor | Hand-recorded room temperature, listed under constraints. |
@@ -103,7 +103,7 @@ What happens when power dies mid-write?
 
 ### Narrowed claims
 - We claim the device predicts time-until-dry for **this plant in this pot**, within [X]% over [N] cycles. We do not claim it generalizes.
-- We treat light as a **bright/dark flag**. We claim it reliably separates day from night at the pot's threshold, not that it reports a light level or true lux.
+- We treat light as a **bright/dark flag**. We claim only that it separates lit from unlit at the pot's setting, based on the baseline readings in Part 2. We do not claim it reports a light level or true lux, or that the switch point stays consistent over days.
 - Without a temperature reading, we report any light-vs-dry-down relationship as a trend that temperature may also explain.
 
 ## Evaluation Plan
@@ -118,6 +118,17 @@ A note on the targets: most sensor targets below are our best guesses before we'
 
 
 ## Part 1: Soil moisture sensor
+
+**Baseline readings** (raw, measured on the Pi, 10 reads per condition):
+
+| Condition | Raw reading |
+|---|---|
+| Air | about 320 |
+| Glass of water | about 522 |
+| Super-dry soil | about 565 |
+| Wet soil | about 977 |
+
+The glass of water reads below dry soil. That was repeatable in two runs and was not investigated; the product reads soil, so S1 uses soil only. A single soil reading varies by about 16 counts (one standard deviation) in these sets. The invalid-reading bounds in the failure table (`[250,1100]`) are drafts built from these numbers and get refined after S1.
 
 | ID | Test | Method | Target |
 |----|------|--------|--------|
@@ -135,16 +146,12 @@ A note on the targets: most sensor targets below are our best guesses before we'
 
 ## Part 2: Light sensor (LM393 module, bright/dark flag)
 
+**Baseline.** We use one set of readings as the baseline for this sensor and do not run separate threshold, chatter, angle, stability or day/night series. The module's DO output reads active (high) when it is dark and inactive (low) when it is lit, so the light reader inverts GPIO17 to get the bright flag (`GT_REC_LIGHT_BRIGHT`, 1 = bright). The blue pot is set once and then left alone, because moving it shifts the threshold and makes data from before and after incomparable. With no reference measurement, we claim only lit versus unlit at the pot's setting (see Narrowed claims).
+
 | ID | Test | Method | Target |
 |----|------|--------|--------|
-| L1 | Threshold check | Set the blue pot, then compare the flag with a reference (phone lux app) at 5 light levels (dark room, dim lamp, normal room light, bright lamp, near a window). Record the level at which the flag flips. | The flag flips at one consistent level, and a lamp-on/lamp-off test gives the same answer 20 out of 20 times. |
-| L2 | Chatter at the threshold | Slowly dim a lamp through the switch point. | The flag toggles at most [N] times as the level crosses the threshold. We'll note whether the sensor process needs debouncing. |
-| L3 | Angle sensitivity | Hold the light constant and rotate the module to 0°, 45°, and 90°, noting whether the flag changes. | Pick one mounting orientation and document at which angles the flag flips. |
-| L4 | Stability | Hold a constant light well above the threshold (a lamp on a timer-free circuit, or a closed box with a small light) for 48 hours. | The flag never changes. A flip means the threshold is drifting, and we'll log it. |
-| L5 | Day/night cycle | Place the module at the plant for 3 days and log the flag. | The flag is dark at night (lights off) and bright during the day, and the daily switch times are consistent to within [X] minutes. |
 | L6 | Fault detection | Disconnect the DO wire mid-run, and separately cover the sensor fully. | A disconnected wire is logged as INVALID, never recorded as a real bright or dark reading (see failure table row 6). Covering the sensor is recorded as real darkness. |
 
-- **L1 note:** Phone lux apps are not reliable. If that's all we can borrow, we'll say so in the results and treat the number as rough.
 - **L6 why:** A disconnected sensor and a dark room can look similar if we aren't careful.
 
 ---
