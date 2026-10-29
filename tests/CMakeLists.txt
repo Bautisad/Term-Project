@@ -69,6 +69,15 @@ if(UNIX AND TARGET gt-feeder AND TARGET gt-logcheck)
   set_tests_properties(killloop_behavior PROPERTIES TIMEOUT 120)
 endif()
 
+# CSV export (gt-csv): every column and flag, flagged readings kept, ranges, two days, a corrupt
+# record, an empty and a missing store, a full stdout, bad arguments.
+if(UNIX AND TARGET gt-csv)
+  add_executable(csvexport_test csvexport_test.c)
+  target_link_libraries(csvexport_test PRIVATE gt_store)
+  add_test(NAME csvexport_behavior COMMAND csvexport_test $<TARGET_FILE:gt-csv>)
+  set_tests_properties(csvexport_behavior PROPERTIES TIMEOUT 60)
+endif()
+
 # Soak check (tools/soakcheck.sh): passes, and fails on a dying feeder, fd or RSS growth, a
 # sequence gap, a rejected store, too few records and ERROR lines; bad arguments exit 2.
 if(UNIX AND TARGET gt-feeder AND TARGET gt-logcheck)
