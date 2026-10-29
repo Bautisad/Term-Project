@@ -15,3 +15,11 @@ if(UNIX AND TARGET gt-supervisor)
                    $<TARGET_FILE:gt-supervisor> $<TARGET_FILE:gt-fake-child>)
   set_tests_properties(supervisor_behavior PROPERTIES TIMEOUT 60)
 endif()
+
+# Store write path: CRC32, record encoding, segments, append, lock, tail check.
+if(UNIX AND TARGET gt_store)
+  add_executable(store_test store_test.c)
+  target_link_libraries(store_test PRIVATE gt_store)
+  add_test(NAME store_append COMMAND store_test)
+  set_tests_properties(store_append PROPERTIES TIMEOUT 60)
+endif()

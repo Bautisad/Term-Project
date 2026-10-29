@@ -36,6 +36,9 @@ int main(void)
         if (sigaction(SIGTERM, &sa, NULL) != 0) {
             return GT_EXIT_FATAL;
         }
+        /* The handler is installed: a SIGTERM from here on exits 0.  Tests wait for this
+         * line, because the supervisor logs "start" as soon as it forks. */
+        (void)fputs("gt-fake-child: ready\n", stderr);
         for (;;) {
             pause();
         }
