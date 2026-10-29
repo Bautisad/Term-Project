@@ -369,15 +369,17 @@ static void test_second_writer_refused(void)
     rm_tree(root);
 }
 
-/* The reader takes no lock: against a writer running flat out, every read is clean (no bad
- * record, no gap), and the log it sees only grows. */
+/* The reader takes no lock: against a busy writer, every read is clean (no bad record, no
+ * gap), and the log it sees only grows.  The writer is capped at 20000 records/s, not left
+ * unbounded: on a RAM-backed /tmp (the Pi) unbounded is about a million records/s, the store
+ * passes 800 MB in 30 s, and every read scans all of it. */
 static void test_live_reader(void)
 {
     char               root[256];
     char               store[300];
     char               log[300];
     char               text[8192];
-    char*              args[] = {"--dir", store, "--rate", "0", NULL};
+    char*              args[] = {"--dir", store, "--rate", "20000", NULL};
     unsigned long long reported;
     uint64_t           first = 0;
     uint64_t           prev = 0;
