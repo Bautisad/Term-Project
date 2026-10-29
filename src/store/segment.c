@@ -283,3 +283,95 @@ out:
     }
     return 0;
 }
+
+/* Reads the record at offset at; *good says whether its CRC32 matched.  Logs a failure. */
+static int read_record(int fd, off_t at, const char* name, gt_record* rec, bool* good)
+{
+    uint8_t buf[GT_RECORD_SIZE];
+
+    if (read_full_at(fd, buf, sizeof buf, at) != 0) {
+        store_log("ERROR", "segment read failed segment=%s errno=%d", name, errno);
+        return -1;
+    }
+    *good = record_decode(buf, rec);
+    return 0;
+}
+
+int segment_recover(int dir_fd, int64_t day, gt_record* last, bool* has_last, uint64_t* dropped)
+{
+    const off_t rsz = (off_t)GT_RECORD_SIZE;
+    char        name[GT_STORE_SEGMENT_NAME_MAX];
+    struct stat st;
+    off_t       ragged;
+    off_t       keep;
+    bool        good = true;
+    bool        too_much = false;
+    int         fd;
+    int         err = 0;
+
+    *has_last = false;
+    *dropped = 0;
+    if (segment_name(day, name) != 0) {
+        return -1;
+    }
+    fd = openat(dir_fd, name, O_RDWR | O_CLOEXEC);
+    if (fd < 0) {
+        err = errno;
+        store_log("ERROR", "segment open failed segment=%s errno=%d", name, err);
+        goto out;
+    }
+    if (fstat(fd, &st) != 0) {
+        err = errno;
+        store_log("ERROR", "segment fstat failed segment=%s errno=%d", name, err);
+        goto out;
+    }
+    ragged = st.st_size % rsz;
+    keep = st.st_size - ragged; /* whole records only */
+
+    /* Decide the cut first: nothing is modified until the kept prefix is known to be sound. */
+    if (keep > 0) {
+        if (read_record(fd, keep - rsz, name, last, &good) != 0) {
+            err = errno;
+            goto out;
+        }
+        if (!good && ragged != 0) {
+            too_much = true; /* a bad record before a torn one is two interrupted writes */
+        } else if (!good) {
+            keep -= rsz; /* the record that was being written when the process died */
+            if (keep > 0) {
+                if (read_record(fd, keep - rsz, name, last, &good) != 0) {
+                    err = errno;
+                    goto out;
+                }
+                too_much = !good;
+            }
+        }
+    }
+    if (too_much) {
+        err = EUCLEAN;
+        store_log("ERROR", "segment damaged_tail segment=%s size=%lld", name,
+                  (long long)st.st_size);
+        goto out;
+    }
+    *has_last = keep > 0;
+    if (keep != st.st_size) {
+        if (ftruncate(fd, keep) != 0) {
+            err = errno;
+            store_log("ERROR", "segment truncate failed segment=%s errno=%d", name, err);
+            goto out;
+        }
+        if (fsync(fd) != 0) {
+            err = errno;
+            store_log("ERROR", "segment fsync failed segment=%s errno=%d", name, err);
+            goto out;
+        }
+        *dropped = (uint64_t)(st.st_size - keep);
+    }
+out:
+    store_close_fd(fd);
+    if (err != 0) {
+        errno = err;
+        return -1;
+    }
+    return 0;
+}
