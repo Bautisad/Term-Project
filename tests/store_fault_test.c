@@ -424,42 +424,50 @@ static void free_fs(const char* mnt)
     CHECK(unlink(path) == 0);
 }
 
-/* 170 records are 4080 bytes, so record 171 straddles the 4096-byte page boundary: the kernel
- * writes its first 16 bytes, then fails to get a new page.  That partial record must be cut
- * off, or the retry would sit behind it. */
+/* The page holds n = page / REC whole records (170 on 4 KB pages, 682 on the Pi 5's 16 KB
+ * pages) and a remainder smaller than one record, so record n + 1 straddles the page boundary:
+ * the kernel writes its first bytes (16 of them, either way), then fails to get a new page.
+ * That partial record must be cut off, or the retry would sit behind it. */
 static void test_enospc_mid_record(const char* mnt)
 {
     char              dir[300];
     char              log[2048];
+    char              want[64];
     gt_store*         s;
     gt_store_recovery info;
+    long              page = sysconf(_SC_PAGESIZE);
+    uint32_t          n;
+
+    CHECK(page > 0 && page % REC != 0); /* else no record straddles the boundary */
+    n = (uint32_t)page / REC;
+    CHECK(snprintf(want, sizeof want, "ERROR store append_failed errno=28 seq=%u", n + 1) > 0);
 
     path_of(dir, sizeof dir, mnt, "a");
     s = open_store(dir, NULL);
-    for (uint32_t i = 1; i <= 170; i++) {
+    for (uint32_t i = 1; i <= n; i++) {
         put_ok(s, i);
     }
-    CHECK(file_size(dir, SEG1) == 170 * REC);
+    CHECK(file_size(dir, SEG1) == n * REC);
     fill_fs(mnt);
 
     g_short_writes = 0;
-    CHECK(put_logged(s, 171, log, sizeof log) == -1 && errno == ENOSPC);
-    CHECK(g_short_writes == 1); /* the 16-byte partial write really happened */
-    CHECK(strstr(log, "ERROR store append_failed errno=28 seq=171") != NULL);
-    CHECK(file_size(dir, SEG1) == 170 * REC); /* cut back to the last good record */
-    CHECK(count_records(dir) == 170);
+    CHECK(put_logged(s, n + 1, log, sizeof log) == -1 && errno == ENOSPC);
+    CHECK(g_short_writes == 1); /* the partial write really happened */
+    CHECK(strstr(log, want) != NULL);
+    CHECK(file_size(dir, SEG1) == n * REC); /* cut back to the last good record */
+    CHECK(count_records(dir) == n);
 
-    CHECK(put(s, 171) == -1 && errno == ENOSPC); /* still full: fails the same way */
-    CHECK(file_size(dir, SEG1) == 170 * REC);
+    CHECK(put(s, n + 1) == -1 && errno == ENOSPC); /* still full: fails the same way */
+    CHECK(file_size(dir, SEG1) == n * REC);
 
     free_fs(mnt);
-    put_ok(s, 171); /* the retry */
-    CHECK(file_size(dir, SEG1) == 171 * REC);
-    CHECK(count_records(dir) == 171);
+    put_ok(s, n + 1); /* the retry */
+    CHECK(file_size(dir, SEG1) == (n + 1) * REC);
+    CHECK(count_records(dir) == n + 1);
     store_close(s);
 
     s = open_store(dir, &info); /* nothing left for recovery to repair */
-    CHECK(info.has_records && info.last_seq == 171 && info.dropped_bytes == 0);
+    CHECK(info.has_records && info.last_seq == n + 1 && info.dropped_bytes == 0);
     store_close(s);
     rm_tree(dir);
 }
