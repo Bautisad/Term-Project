@@ -114,7 +114,7 @@ These are the parts still to come. The issue numbers are on the repository's iss
 
 - Sensor readers (soil over I2C, light on GPIO17) and the hub that collects their readings
 - Storage layer in `src/store`: segment files, CRC, crash recovery and range reads (#37, #36, #35, #34, #33)
-- Test tools: fake sensor feeder, log checker, kill loop, CSV export (#41, #40, #39, #38)
+- Test tools: fake sensor feeder, log checker, kill loop (#41, #40, #39)
 - Analysis: dry-down detection and time-until-dry (#27), light-adjusted prediction (#26)
 - LAN page (#25) and the "needs water" state on it (#43)
 - Sensor calibration tests and crash-safety runs (#32, #29, #30, #31)
