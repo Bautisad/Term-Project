@@ -421,6 +421,241 @@ static void test_recover_empties_newest(void)
     rm_tree(dir);
 }
 
+/* What the reader showed us, in order.  A corrupt record has seq 0 (every field is zero). */
+typedef struct collect {
+    uint32_t seq[64];
+    int      status[64];
+    size_t   n;
+    size_t   stop_after; /* 0: never stop early */
+} collect;
+
+static int collect_fn(const gt_record* rec, gt_store_rec_status status, void* ctx)
+{
+    collect* c = ctx;
+
+    CHECK(rec != NULL && c->n < 64);
+    if (status == GT_STORE_REC_CORRUPT) {
+        CHECK(rec->ts_unix_ms == 0 && rec->seq == 0 && rec->soil_raw == 0 && rec->flags == 0 &&
+              rec->light_bright_ms == 0 && rec->light_edges == 0 && rec->crc32 == 0);
+    }
+    c->seq[c->n] = rec->seq;
+    c->status[c->n] = (int)status;
+    c->n++;
+    return c->stop_after != 0 && c->n >= c->stop_after;
+}
+
+static void run_range(const char* dir, uint64_t from, uint64_t to, collect* c)
+{
+    memset(c, 0, sizeof *c);
+    CHECK(store_read_range(dir, from, to, collect_fn, c) == 0);
+}
+
+/* want[i] is the expected seq, or 0 for a corrupt record. */
+static void expect_seqs(const collect* c, const uint32_t* want, size_t n)
+{
+    CHECK(c->n == n);
+    for (size_t i = 0; i < n; i++) {
+        CHECK(c->seq[i] == want[i]);
+        CHECK(c->status[i] == (want[i] == 0 ? (int)GT_STORE_REC_CORRUPT : (int)GT_STORE_REC_OK));
+    }
+}
+
+#define EXPECT(c, ...)                                                   \
+    do {                                                                 \
+        const uint32_t want_[] = {__VA_ARGS__};                          \
+        expect_seqs((c), want_, sizeof want_ / sizeof want_[0]);         \
+    } while (0)
+
+static void test_read_filters_by_time(void)
+{
+    char      dir[256];
+    uint8_t   before[512];
+    uint8_t   after[512];
+    collect   c;
+    gt_store* s = NULL;
+    size_t    n;
+
+    make_tmp(dir, sizeof dir);
+    run_range(dir, 0, UINT64_MAX, &c); /* a directory with no segments */
+    CHECK(c.n == 0);
+    CHECK(store_recover(dir, &s, NULL) == 0); /* only a lock file so far */
+    store_close(s);
+    run_range(dir, 0, UINT64_MAX, &c);
+    CHECK(c.n == 0);
+
+    fill(dir, 10);
+    n = read_file(dir, SEG1, before, sizeof before);
+    run_range(dir, 0, UINT64_MAX, &c);
+    EXPECT(&c, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+    run_range(dir, T_BASE + 2 * T_MIN, T_BASE + 5 * T_MIN, &c); /* from included, to excluded */
+    EXPECT(&c, 3, 4, 5);
+    run_range(dir, T_BASE + 4 * T_MIN, T_BASE + 4 * T_MIN, &c); /* an empty range */
+    CHECK(c.n == 0);
+    run_range(dir, 0, T_BASE, &c); /* before all data */
+    CHECK(c.n == 0);
+    run_range(dir, T_BASE + 100 * T_MIN, UINT64_MAX, &c); /* after all data */
+    CHECK(c.n == 0);
+
+    CHECK(read_file(dir, SEG1, after, sizeof after) == n && memcmp(before, after, n) == 0);
+    rm_tree(dir);
+}
+
+/* Segments are read oldest first, and a record stamped while the clock was behind sits in
+ * a later segment than its timestamp suggests: it must still be found. */
+static void test_read_across_segments(void)
+{
+    char      dir[256];
+    collect   c;
+    gt_store* s = NULL;
+
+    make_tmp(dir, sizeof dir);
+    CHECK(store_recover(dir, &s, NULL) == 0);
+    append_ok(s, T_BASE, 1);              /* 2023-11-14 */
+    append_ok(s, T_DAY2 + 1000, 2);       /* 2023-11-15 */
+    append_ok(s, T_DAY3 + 1000, 3);       /* 2023-11-16 */
+    append_ok(s, T_BASE + T_MIN, 4);      /* stamped 11-14, stored in the 11-16 segment */
+    store_close(s);
+
+    run_range(dir, 0, UINT64_MAX, &c);
+    EXPECT(&c, 1, 2, 3, 4); /* segment and file order, not time order */
+    run_range(dir, T_DAY2, T_DAY3, &c);
+    EXPECT(&c, 2);
+    run_range(dir, T_BASE + T_MIN, T_BASE + T_MIN + 1000, &c);
+    EXPECT(&c, 4);
+    run_range(dir, 0, T_BASE + 2 * T_MIN, &c);
+    EXPECT(&c, 1, 4);
+    run_range(dir, T_DAY3, UINT64_MAX, &c);
+    EXPECT(&c, 3);
+    rm_tree(dir);
+}
+
+/* A record that fails its CRC is a gap in the middle of the log: it is reported only when
+ * it lies between two records in range. */
+static void test_read_reports_corruption(void)
+{
+    char    dir[256];
+    uint8_t before[512];
+    uint8_t after[512];
+    collect c;
+    size_t  n;
+
+    make_tmp(dir, sizeof dir);
+    fill(dir, 5);
+    flip(dir, SEG1, 2 * REC + 5); /* record 3 */
+    n = read_file(dir, SEG1, before, sizeof before);
+
+    run_range(dir, 0, UINT64_MAX, &c);
+    EXPECT(&c, 1, 2, 0, 4, 5);
+    run_range(dir, T_BASE + T_MIN, T_BASE + 4 * T_MIN, &c); /* records 2, 3, 4 */
+    EXPECT(&c, 2, 0, 4);
+    run_range(dir, T_BASE + 3 * T_MIN, UINT64_MAX, &c); /* the gap is before the range */
+    EXPECT(&c, 4, 5);
+    run_range(dir, 0, T_BASE + 2 * T_MIN, &c); /* the gap is after the range */
+    EXPECT(&c, 1, 2);
+    CHECK(read_file(dir, SEG1, after, sizeof after) == n && memcmp(before, after, n) == 0);
+    rm_tree(dir);
+
+    make_tmp(dir, sizeof dir); /* two bad records in a row are two gaps */
+    fill(dir, 6);
+    flip(dir, SEG1, 2 * REC + 5);
+    flip(dir, SEG1, 3 * REC + 5);
+    run_range(dir, 0, UINT64_MAX, &c);
+    EXPECT(&c, 1, 2, 0, 0, 5, 6);
+    rm_tree(dir);
+}
+
+/* A bad record that ends one segment still sits between records of the next. */
+static void test_read_corruption_across_segments(void)
+{
+    char      dir[256];
+    collect   c;
+    gt_store* s = NULL;
+
+    make_tmp(dir, sizeof dir);
+    CHECK(store_recover(dir, &s, NULL) == 0);
+    append_ok(s, T_BASE, 1);
+    append_ok(s, T_BASE + T_MIN, 2);
+    append_ok(s, T_DAY2 + 1000, 3);
+    append_ok(s, T_DAY2 + 1000 + T_MIN, 4);
+    store_close(s);
+    flip(dir, SEG1, REC + 5); /* record 2, the last one in the older segment */
+
+    run_range(dir, 0, UINT64_MAX, &c);
+    EXPECT(&c, 1, 0, 3, 4);
+    rm_tree(dir);
+}
+
+/* The newest segment may end in a torn write: the reader skips it without a report. */
+static void test_read_skips_torn_tail(void)
+{
+    char    dir[256];
+    uint8_t before[512];
+    uint8_t after[512];
+    collect c;
+    size_t  n;
+
+    make_tmp(dir, sizeof dir);
+    fill(dir, 3);
+    cut(dir, SEG1, 3 * REC - 5); /* a short final record */
+    n = read_file(dir, SEG1, before, sizeof before);
+    run_range(dir, 0, UINT64_MAX, &c);
+    EXPECT(&c, 1, 2);
+    CHECK(read_file(dir, SEG1, after, sizeof after) == n && memcmp(before, after, n) == 0);
+    rm_tree(dir);
+
+    make_tmp(dir, sizeof dir);
+    fill(dir, 3);
+    flip(dir, SEG1, 2 * REC + 5); /* a full-size final record with a bad CRC */
+    run_range(dir, 0, UINT64_MAX, &c);
+    EXPECT(&c, 1, 2);
+    CHECK(file_size(dir, SEG1) == 3 * REC); /* reading never repairs anything */
+    rm_tree(dir);
+}
+
+static void test_read_early_stop_and_live_writer(void)
+{
+    char      dir[256];
+    collect   c;
+    gt_store* s = NULL;
+
+    make_tmp(dir, sizeof dir);
+    fill(dir, 10);
+    memset(&c, 0, sizeof c);
+    c.stop_after = 3;
+    CHECK(store_read_range(dir, 0, UINT64_MAX, collect_fn, &c) == 0); /* not an error */
+    EXPECT(&c, 1, 2, 3);
+    rm_tree(dir);
+
+    /* The reader takes no lock: it works while a writer has the store open. */
+    make_tmp(dir, sizeof dir);
+    CHECK(store_recover(dir, &s, NULL) == 0);
+    append_ok(s, T_BASE, 1);
+    append_ok(s, T_BASE + T_MIN, 2);
+    run_range(dir, 0, UINT64_MAX, &c);
+    EXPECT(&c, 1, 2);
+    append_ok(s, T_BASE + 2 * T_MIN, 3);
+    run_range(dir, 0, UINT64_MAX, &c);
+    EXPECT(&c, 1, 2, 3);
+    store_close(s);
+    rm_tree(dir);
+}
+
+static void test_read_bad_args(void)
+{
+    collect c;
+
+    memset(&c, 0, sizeof c);
+    errno = 0;
+    CHECK(store_read_range(NULL, 0, 1, collect_fn, &c) == -1 && errno == EINVAL);
+    errno = 0;
+    CHECK(store_read_range("/tmp", 0, 1, NULL, &c) == -1 && errno == EINVAL);
+    errno = 0;
+    CHECK(store_read_range("/tmp", 2, 1, collect_fn, &c) == -1 && errno == EINVAL);
+    errno = 0;
+    CHECK(store_read_range("/nonexistent-dir/x", 0, 1, collect_fn, &c) == -1 && errno == ENOENT);
+    CHECK(c.n == 0);
+}
+
 static void test_bad_args(void)
 {
     char      dir[256];
@@ -462,6 +697,13 @@ int main(void)
     test_recover_refuses_more_damage();
     test_recover_leaves_the_rest();
     test_recover_empties_newest();
+    test_read_filters_by_time();
+    test_read_across_segments();
+    test_read_reports_corruption();
+    test_read_corruption_across_segments();
+    test_read_skips_torn_tail();
+    test_read_early_stop_and_live_writer();
+    test_read_bad_args();
     test_bad_args();
     puts("PASS");
     return 0;
