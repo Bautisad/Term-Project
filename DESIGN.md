@@ -143,6 +143,16 @@ The glass of water reads below dry soil. That was repeatable in two runs and was
 - **S1 why:** The raw sensor number means nothing until we know how it maps to actual wetness.
 - **S3 why:** Capacitive sensors are sensitive to how well the soil touches the probe, and a plant owner will move it around.
 
+**Measured results (S1-S5).** Captured with `tools/soilread.sh` and judged with `tools/soilstats.sh` on the Pi. The targets above are not edited: a miss is recorded here with the reason. Raw captures are kept with the run, every read as the sensor returned it.
+
+| ID | Target | Measured | Result | Date | Notes |
+|----|--------|----------|--------|------|-------|
+| S1 | Monotonic, R² ≥ 0.9 | not run | | | |
+| S2 | Median-of-5 stdev under 1% of the range | not run | | | |
+| S3 | Reinsertion spread under 5% of the range | not run | | | |
+| S4 | Settles within 5% in 10 s | not run | | | |
+| S5 | Drift under 2% of the range over 48 h | not run | | | |
+
 ---
 
 ## Part 2: Light sensor (LM393 module, bright/dark flag)

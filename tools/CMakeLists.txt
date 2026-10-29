@@ -24,4 +24,8 @@ if(UNIX AND TARGET gt_store)
 
   # soakcheck.sh: the 1-hour soak (`make soakcheck`). Installed for the Pi too.
   install(PROGRAMS soakcheck.sh DESTINATION bin)
+
+  # soilread.sh logs raw soil sensor reads and soilstats.sh judges them (S1-S5). Installed
+  # for the Pi, where the sensor is.
+  install(PROGRAMS soilread.sh soilstats.sh DESTINATION bin)
 endif()
