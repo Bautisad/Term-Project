@@ -81,6 +81,11 @@ gt_daemon(gt-sensor-soil   sensors/soil_main.c   gt_sensors gt_ipc)
 gt_daemon(gt-sensor-light  sensors/light_main.c  gt_sensors gt_ipc)
 gt_daemon(gt-interface     interface/main.c      gt_analysis gt_store)
 
+# --- Tools (tools/CMakeLists.txt; built before tests, which use them) --------
+if(EXISTS "${CMAKE_SOURCE_DIR}/tools/CMakeLists.txt")
+  add_subdirectory(tools)
+endif()
+
 # --- Tests (tests/CMakeLists.txt registers them with add_test) ---------------
 include(CTest)   # also calls enable_testing(); needed by `ctest -T memcheck`
 if(EXISTS "${CMAKE_SOURCE_DIR}/tests/CMakeLists.txt")
