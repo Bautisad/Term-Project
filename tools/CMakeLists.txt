@@ -15,4 +15,7 @@ if(UNIX AND TARGET gt_store)
 
   # killloop.sh: the P1 driver. Installed next to the binaries it runs, for the Pi.
   install(PROGRAMS killloop.sh DESTINATION bin)
+
+  # soakcheck.sh: the 1-hour soak (`make soakcheck`). Installed for the Pi too.
+  install(PROGRAMS soakcheck.sh DESTINATION bin)
 endif()
