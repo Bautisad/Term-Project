@@ -23,3 +23,16 @@ if(UNIX AND TARGET gt_store)
   add_test(NAME store_append COMMAND store_test)
   set_tests_properties(store_append PROPERTIES TIMEOUT 60)
 endif()
+
+# Fake sensor feeder: run as a child process (count, resume, pacing, SIGTERM, SIGKILL,
+# bad arguments), then on its own so `make memcheck` runs the feeder itself under Valgrind.
+# feeder_smoke keeps its directory between runs, so it also exercises the resume path.
+if(UNIX AND TARGET gt-feeder)
+  add_executable(feeder_test feeder_test.c)
+  target_link_libraries(feeder_test PRIVATE gt_store)
+  add_test(NAME feeder_behavior COMMAND feeder_test $<TARGET_FILE:gt-feeder>)
+  set_tests_properties(feeder_behavior PROPERTIES TIMEOUT 120)
+  add_test(NAME feeder_smoke
+           COMMAND gt-feeder --dir ${CMAKE_BINARY_DIR}/feeder_smoke --rate 0 --count 2000)
+  set_tests_properties(feeder_smoke PROPERTIES TIMEOUT 120)
+endif()
