@@ -47,6 +47,7 @@ static int scan_segments(gt_store* s, gt_store_recovery* info)
     bool        created;
     int64_t     newest;
     int64_t     day;
+    uint64_t    dropped = 0;
     int         rc = segment_latest(s->dir_fd, INT64_MAX, &newest);
 
     if (rc != 0) {
@@ -56,8 +57,15 @@ static int scan_segments(gt_store* s, gt_store_recovery* info)
     for (;;) {
         gt_record last;
         bool      has_last;
+        int       chk;
 
-        if (segment_check(s->dir_fd, day, &last, &has_last) != 0) {
+        /* Only the newest segment can hold a torn write; older ones must be clean. */
+        if (day == newest) {
+            chk = segment_recover(s->dir_fd, day, &last, &has_last, &dropped);
+        } else {
+            chk = segment_check(s->dir_fd, day, &last, &has_last);
+        }
+        if (chk != 0) {
             return -1;
         }
         if (has_last) {
@@ -75,6 +83,14 @@ static int scan_segments(gt_store* s, gt_store_recovery* info)
     }
     if (segment_name(newest, info->segment) != 0) {
         return -1;
+    }
+    info->dropped_bytes = dropped;
+    if (dropped > 0 && info->has_records) {
+        store_log("WARN", "recovered segment=%s dropped_bytes=%llu last_seq=%u", info->segment,
+                  (unsigned long long)dropped, (unsigned)info->last_seq);
+    } else if (dropped > 0) {
+        store_log("WARN", "recovered segment=%s dropped_bytes=%llu last_seq=none", info->segment,
+                  (unsigned long long)dropped);
     }
     s->seg_fd = segment_open(s->dir_fd, newest, &created);
     if (s->seg_fd < 0) {

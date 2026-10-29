@@ -32,7 +32,17 @@ int segment_open(int dir_fd, int64_t day, bool* created);
 /* Checks that the segment ends cleanly: its length is a whole number of records and the
  * last record's CRC32 matches.  On success *has_last says whether the segment holds any
  * record and *last is that record.  A ragged or corrupt tail returns -1 with EUCLEAN
- * (truncating it is the recovery path's job); other failures set errno as usual. */
+ * (the newest segment goes through segment_recover instead); other failures set errno
+ * as usual.  Read-only. */
 int segment_check(int dir_fd, int64_t day, gt_record* last, bool* has_last);
+
+/* Recovery for the newest segment; the caller holds the directory lock.  It repairs what
+ * one interrupted append can leave behind and nothing more: a short final record, or one
+ * full-size final record with a bad CRC.  Both together, or two bad final records, are
+ * too much for one interrupted write (a failing card, not a torn write), so it returns
+ * -1 with EUCLEAN and leaves the file as it found it.  The cut is decided before
+ * anything is modified; the file is then truncated and fsynced.  *dropped is the number
+ * of bytes cut, and *has_last / *last describe the last good record that remains. */
+int segment_recover(int dir_fd, int64_t day, gt_record* last, bool* has_last, uint64_t* dropped);
 
 #endif /* GT_SEGMENT_H */

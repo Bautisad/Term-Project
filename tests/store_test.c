@@ -253,40 +253,171 @@ static void test_lock_and_reopen(void)
     rm_tree(dir);
 }
 
-/* A ragged or corrupt tail is refused until the recovery path truncates it; a segment
- * that ends exactly on a record boundary opens fine. */
-static void test_tail_check(void)
+#define SEG1 "2023-11-14.log"
+#define SEG2 "2023-11-15.log"
+#define REC  ((off_t)GT_RECORD_SIZE)
+
+/* Writes n records (seq 1..n, one minute apart) into dir's first segment. */
+static void fill(const char* dir, uint32_t n)
+{
+    gt_store* s = NULL;
+
+    CHECK(store_recover(dir, &s, NULL) == 0);
+    for (uint32_t i = 0; i < n; i++) {
+        append_ok(s, T_BASE + i * T_MIN, i + 1);
+    }
+    store_close(s);
+}
+
+/* Damages one byte of dir/name at offset at, so its record fails its CRC. */
+static void flip(const char* dir, const char* name, off_t at)
+{
+    char          path[512];
+    unsigned char b;
+    int           fd;
+
+    path_of(path, sizeof path, dir, name);
+    fd = open(path, O_RDWR);
+    CHECK(fd >= 0 && pread(fd, &b, 1, at) == 1);
+    b ^= 0x5Au;
+    CHECK(pwrite(fd, &b, 1, at) == 1 && close(fd) == 0);
+}
+
+/* Cuts dir/name to len bytes, as a torn write would. */
+static void cut(const char* dir, const char* name, off_t len)
+{
+    char path[512];
+
+    path_of(path, sizeof path, dir, name);
+    CHECK(truncate(path, len) == 0);
+}
+
+/* Damage beyond one interrupted write: store_recover refuses with EUCLEAN and the
+ * segment is left byte for byte as it was. */
+static void expect_refused(const char* dir, const char* name)
+{
+    uint8_t   before[512];
+    uint8_t   after[512];
+    gt_store* s = NULL;
+    size_t    n = read_file(dir, name, before, sizeof before);
+
+    errno = 0;
+    CHECK(store_recover(dir, &s, NULL) == -1 && errno == EUCLEAN && s == NULL);
+    CHECK(read_file(dir, name, after, sizeof after) == n && memcmp(before, after, n) == 0);
+}
+
+/* One interrupted write is repaired: the damaged final record is cut, the rest is kept. */
+static void test_recover_torn_tail(void)
 {
     char              dir[256];
-    char              path[512];
+    uint8_t           buf[4 * GT_RECORD_SIZE];
     gt_store*         s = NULL;
     gt_store_recovery info;
-    unsigned char     flip = 0x5A;
-    int               fd;
+    gt_record         got;
+
+    /* A short final record: 43 bytes is one whole record plus 19 stray bytes. */
+    make_tmp(dir, sizeof dir);
+    fill(dir, 2);
+    cut(dir, SEG1, 2 * REC - 5);
+    CHECK(store_recover(dir, &s, &info) == 0);
+    CHECK(info.has_records == 1 && info.last_seq == 1 && info.dropped_bytes == 19);
+    CHECK(strcmp(info.segment, SEG1) == 0 && file_size(dir, SEG1) == REC);
+    append_ok(s, T_BASE + T_MIN, 2); /* appends continue cleanly behind the kept record */
+    store_close(s);
+    CHECK(read_file(dir, SEG1, buf, sizeof buf) == 2 * GT_RECORD_SIZE);
+    CHECK(record_decode(buf, &got) && got.seq == 1);
+    CHECK(record_decode(buf + GT_RECORD_SIZE, &got) && got.seq == 2);
+    rm_tree(dir);
+
+    /* A full-size final record with a bad CRC. */
+    make_tmp(dir, sizeof dir);
+    fill(dir, 2);
+    flip(dir, SEG1, REC + 6);
+    CHECK(store_recover(dir, &s, &info) == 0);
+    CHECK(info.has_records == 1 && info.last_seq == 1 && info.dropped_bytes == GT_RECORD_SIZE);
+    CHECK(file_size(dir, SEG1) == REC);
+    store_close(s);
+    rm_tree(dir);
+
+    /* The caller does not have to ask for the report. */
+    make_tmp(dir, sizeof dir);
+    fill(dir, 2);
+    cut(dir, SEG1, 2 * REC - 5);
+    CHECK(store_recover(dir, &s, NULL) == 0 && file_size(dir, SEG1) == REC);
+    store_close(s);
+    rm_tree(dir);
+}
+
+/* More damage than one interrupted write can cause points at the card, not at a crash:
+ * recovery stops and tells, and does not delete anything. */
+static void test_recover_refuses_more_damage(void)
+{
+    char dir[256];
+
+    make_tmp(dir, sizeof dir);
+    fill(dir, 2);
+    flip(dir, SEG1, 5);        /* record 1 is bad ... */
+    cut(dir, SEG1, 2 * REC - 5); /* ... and a torn record follows it */
+    expect_refused(dir, SEG1);
+    rm_tree(dir);
+
+    make_tmp(dir, sizeof dir);
+    fill(dir, 3);
+    flip(dir, SEG1, REC + 5);     /* two bad records at the end */
+    flip(dir, SEG1, 2 * REC + 5);
+    expect_refused(dir, SEG1);
+    rm_tree(dir);
+}
+
+/* Recovery only looks at the end of the file. */
+static void test_recover_leaves_the_rest(void)
+{
+    char              dir[256];
+    gt_store*         s = NULL;
+    gt_store_recovery info;
+
+    /* Damage in the middle is the reader's business (it reports the gap), not recovery's. */
+    make_tmp(dir, sizeof dir);
+    fill(dir, 3);
+    flip(dir, SEG1, REC + 5);
+    CHECK(store_recover(dir, &s, &info) == 0);
+    CHECK(info.has_records == 1 && info.last_seq == 3 && info.dropped_bytes == 0);
+    CHECK(file_size(dir, SEG1) == 3 * REC);
+    store_close(s);
+    rm_tree(dir);
+
+    /* A clean log is not touched, however often it is recovered. */
+    make_tmp(dir, sizeof dir);
+    fill(dir, 3);
+    for (int i = 0; i < 2; i++) {
+        CHECK(store_recover(dir, &s, &info) == 0);
+        CHECK(info.last_seq == 3 && info.dropped_bytes == 0 && file_size(dir, SEG1) == 3 * REC);
+        store_close(s);
+    }
+    rm_tree(dir);
+}
+
+/* The only record in the newest segment was the torn one: the segment becomes empty and
+ * the sequence number comes from the older segment. */
+static void test_recover_empties_newest(void)
+{
+    char              dir[256];
+    gt_store*         s = NULL;
+    gt_store_recovery info;
 
     make_tmp(dir, sizeof dir);
     CHECK(store_recover(dir, &s, NULL) == 0);
     append_ok(s, T_BASE, 1);
-    append_ok(s, T_BASE + T_MIN, 2);
+    append_ok(s, T_DAY2 + 1000, 2);
     store_close(s);
-    path_of(path, sizeof path, dir, "2023-11-14.log");
+    cut(dir, SEG2, 10);
 
-    CHECK(truncate(path, (off_t)(2 * GT_RECORD_SIZE) - 5) == 0); /* torn last record */
-    errno = 0;
-    s = NULL;
-    CHECK(store_recover(dir, &s, NULL) == -1 && errno == EUCLEAN && s == NULL);
-
-    CHECK(truncate(path, (off_t)GT_RECORD_SIZE) == 0); /* whole records only */
     CHECK(store_recover(dir, &s, &info) == 0);
-    CHECK(info.has_records == 1 && info.last_seq == 1);
-    append_ok(s, T_BASE + T_MIN, 2);
+    CHECK(info.has_records == 1 && info.last_seq == 1 && info.dropped_bytes == 10);
+    CHECK(strcmp(info.segment, SEG2) == 0 && file_size(dir, SEG2) == 0);
+    append_ok(s, T_DAY2 + 1000, 2);
     store_close(s);
-    CHECK(file_size(dir, "2023-11-14.log") == (off_t)(2 * GT_RECORD_SIZE));
-
-    fd = open(path, O_WRONLY); /* a flipped byte inside the last record */
-    CHECK(fd >= 0 && pwrite(fd, &flip, 1, 30) == 1 && close(fd) == 0);
-    errno = 0;
-    CHECK(store_recover(dir, &s, NULL) == -1 && errno == EUCLEAN && s == NULL);
+    CHECK(file_size(dir, SEG2) == REC);
     rm_tree(dir);
 }
 
@@ -327,7 +458,10 @@ int main(void)
     test_append_roundtrip();
     test_segments();
     test_lock_and_reopen();
-    test_tail_check();
+    test_recover_torn_tail();
+    test_recover_refuses_more_damage();
+    test_recover_leaves_the_rest();
+    test_recover_empties_newest();
     test_bad_args();
     puts("PASS");
     return 0;
