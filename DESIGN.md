@@ -100,6 +100,7 @@ What happens when power dies mid-write?
 | Soil moisture reference | Lab-grade probe or oven-dry samples | Kitchen scale (pot weight) | Weight reflects the whole pot, not the soil at the probe. |
 | Sensor interface | A separate ADC (or bus) per sensor | Soil sensor on I2C (0x36), light flag on its own GPIO pin (17). No ADC. | Each sensor has its own interface, so an I2C fault takes out soil only (row 7). With no ADC, there is no analog light level (see the light sensor row). |
 | Power-loss testing | Many pulls on fresh SD cards | [10] pulls on one card | Limited by card wear. Most crash testing uses `kill -9` with a synthetic feeder. |
+| Alerting | A push notification (phone, email or SMS) when the plant needs water | A "needs water" state on the LAN page only. The product makes no outside network calls, so there is no push, email or SMS. | Nobody is told unless they open the page, so a dry plant can go unnoticed. The page shows the state and the current reading, and shows "not enough data" when the reading cannot be trusted. |
 
 ### Narrowed claims
 - We claim the device predicts time-until-dry for **this plant in this pot**, within [X]% over [N] cycles. We do not claim it generalizes.
