@@ -2,9 +2,45 @@
 
 
 ## Architecture
+For the architecture the system is one supervisor plus three worker processes, and analysis and the interface read the sotre on their own. No processes uses threads, because each one runs a single poll loop.
+-**gt-supervisor** this starts the other processes, reads the exit codes and heartbeats, after that it restarts failed ones with backoff, and writes its own event log. it reads no sensors and stores no readings.
+--**gt-sensor-soil** reads the STEMMA soil over I2C (which is adress 0x36 once a minute and sends one soil message to the hub.
+--**gt-sensor-light** counts the bright/dark transitions on the LM393 DO pin (which is gpio17) and sends a summary message to the hub once a minute. 
+- **gt-hub is the only writer, once a minnute it builds one 24-byte record from the latest soil and the light messages and then appends it with 'store_append'.
+- **analysis and interface** read the store through 'store_read_range'. Because of that they don't talk to the hub or sensors.
+
+## Data flow and rates
+| From | To | Channel | Message | Rate | Size |
+|---|---|---|---|---|---|
+| gt-sensor-soil | gt-hub | AF_UNIX SOCK_SEQPACKET, `/run/greenthumb/hub.sock` | GT_MSG_SOIL | 1 per minute | 32 B |
+| gt-sensor-light | gt-hub | same socket | GT_MSG_LIGHT | 1 per minute | 32 B |
+| gt-hub | store (disk) | `store_append`, fsync after each record | record | 1 per minute | 24 B (about 35 KB per day) |
+| each child | gt-supervisor | socketpair inherited as fd 3 | GT_MSG_HEARTBEAT | every 10 s | 24 B |
+| gt-supervisor | children | fork/exec, SIGTERM, SIGKILL | none | only on start, stop or failure | none |
+
+### Operating-System mechanisms used
+-** fork,exec,waitpid** (supervisor starts and reaps childrien)
+-** signals and signalfd** (sigcld, sigterm and sigint handled in the supervisor)
+-**poll (every process waits on its inputs and a timer in one loop)
+-**AF_UNIX SOCK_SEQPACKET sockets** (messages between process; a dead peer shows up as end of file)
+-**close_range** (each chiled keeps only fds 0 to 3 so no descriptors leaks across restarts)
+-** I2C through i2c-dev**(soil sensor reads and **GPIO through the gpio chip character device, v2 edge events( which is for the light sensor)**
+-**flock**(the hub holds an exclusive lock so that only one writer runs)
+-**fsync on the file and its directory** (power cut loses at most the record being written)
+
+### Failure isolation 
+incase there is a crash,hang or i2c error in one of the sensors it affects only that proccess. The hub records the missing reading as invalid and then it keeps going.
+If there is a situation that the hub dies, the supervisor restarts it, and resumes numbering from the last record in the store, 
+so then the gap appears in the log. Since the store is append only, a crash loses at most the record in flight.
 
 
 ## Mechanism Mapping
+| Mechanism | Where it lives | How it is checked | Status |
+|---|---|---|---|
+| Multi-process isolation with a supervisor (mechanism E) | src/supervisor, src/ipc | tests/supervisor_test.sh: restart with backoff, no restart on a config exit, clean SIGTERM, no fd leak; `make memcheck` runs the supervisor under Valgrind | Supervisor restart and shutdown implemented; heartbeat deadlines and the hub and sensors are next |
+| Custom storage layer (mechanism D) | src/store | store_test, store_failures and store_error_paths (fault injection on every libc call), the kill -9 loop, and the log checker |  
+| Watchdog through heartbeats | src/supervisor, src/ipc | Planned test: a child that goes silent is logged at 30 s and killed at 60 s | 
+| Custom drivers | src/sensors | Userspace drivers over kernel interfaces (i2c-dev, GPIO character device), not a kernel module; checked on the Pi with raw sensor reads and the GPIO17 level | Planned, hardware test|
 
 
 ## Failure-Mode Table
