@@ -24,8 +24,12 @@ asan:
 
 # supervisor_behavior is a shell script, so valgrind must wrap the binaries it starts
 # (via GT_VALGRIND), not the shell; exit code 99 keeps findings apart from the supervisor's 0/1.
+# killloop/soiltools/soakcheck_behavior are shell scripts too, but unlike supervisor_behavior
+# they cannot take GT_VALGRIND yet: under valgrind they only check dash (a 15-byte strdup leak
+# in the shell). They still run in `make test` and `make asan`. TODO (Duke):
+# thread GT_VALGRIND through tests/*_test.sh and tools/{killloop,soakcheck}.sh, then drop them here.
 memcheck: all
-	cd build && ctest -T memcheck -E supervisor_behavior --output-on-failure --no-tests=error \
+	cd build && ctest -T memcheck -E 'supervisor_behavior|killloop_behavior|soiltools_behavior|soakcheck_behavior' --output-on-failure --no-tests=error \
 		--overwrite MemoryCheckCommandOptions="--leak-check=full --error-exitcode=1"
 	cd build && GT_VALGRIND="valgrind --trace-children=yes --leak-check=full --error-exitcode=99" \
 		ctest -R supervisor_behavior --output-on-failure --no-tests=error
