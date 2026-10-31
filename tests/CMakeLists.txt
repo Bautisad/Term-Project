@@ -24,6 +24,37 @@ if(UNIX AND TARGET gt_ipc)
   set_tests_properties(ipc_roundtrip PROPERTIES TIMEOUT 30)
 endif()
 
+# Soil sensor logic: median, range check, stuck detection. No hardware needed.
+if(UNIX AND TARGET gt_sensors)
+  add_executable(soil_logic_test soil_logic_test.c)
+  target_link_libraries(soil_logic_test PRIVATE gt_sensors)
+  add_test(NAME soil_logic COMMAND soil_logic_test)
+  set_tests_properties(soil_logic PROPERTIES TIMEOUT 30)
+endif()
+
+# Light sensor logic: window totals, stuck and chatter rules. No hardware needed.
+if(UNIX AND TARGET gt_sensors)
+  add_executable(light_logic_test light_logic_test.c)
+  target_link_libraries(light_logic_test PRIVATE gt_sensors)
+  add_test(NAME light_logic COMMAND light_logic_test)
+  set_tests_properties(light_logic PROPERTIES TIMEOUT 30)
+endif()
+
+# Soil sensor process: the real loop with a fake sensor, against a stand-in hub and supervisor
+# (messages, heartbeats, retries, hub restart, exit codes). Linux only: prctl, unix sockets.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TARGET gt_sensors)
+  add_executable(soil_proc_test soil_proc_test.c)
+  target_link_libraries(soil_proc_test PRIVATE gt_sensors)
+  add_test(NAME soil_process COMMAND soil_proc_test)
+  set_tests_properties(soil_process PROPERTIES TIMEOUT 60)
+
+  # Light sensor process: the same, with a pipe standing in for the GPIO line.
+  add_executable(light_proc_test light_proc_test.c)
+  target_link_libraries(light_proc_test PRIVATE gt_sensors)
+  add_test(NAME light_process COMMAND light_proc_test)
+  set_tests_properties(light_process PROPERTIES TIMEOUT 60)
+endif()
+
 # Store write path: CRC32, record encoding, segments, append, lock, tail check.
 if(UNIX AND TARGET gt_store)
   add_executable(store_test store_test.c)

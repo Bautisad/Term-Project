@@ -2,7 +2,7 @@
 
 A small device that watches one houseplant's soil moisture and light, so the owner knows when to water instead of guessing. A Raspberry Pi 5 reads a capacitive soil moisture sensor and a bright/dark light module, keeps weeks of history in its own crash-safe log, and will show a "needs water" state on a page served only to the local network.
 
-**Status:** hardware bring-up and the build system work today. The sensor readers, hub, storage layer, analysis and LAN page are still being written (see [Not built yet](#not-built-yet)), so there is nothing to run end to end yet. This README covers wiring the hardware, checking that it works, and building and deploying what exists. Run instructions will be added when the device runs.
+**Status:** hardware bring-up, the build system, the supervisor, the IPC layer and the two sensor processes work in tests. The sensor drivers have not been checked on the Pi yet. The hub, analysis and LAN page are still being written (see [Not built yet](#not-built-yet)), so there is nothing to run end to end yet. This README covers wiring the hardware, checking that it works, and building and deploying what exists. Run instructions will be added when the device runs.
 
 ## Ground rules
 
@@ -100,7 +100,8 @@ sudo apt install build-essential cmake rsync valgrind gcc-aarch64-linux-gnu
 
 A change counts as done only when `make`, `make test` and `make asan` all pass.
 
-Today this builds only `gt-supervisor` and a test helper. The other programs are built automatically once their source files exist.
+Today this builds `gt-supervisor`, `gt-sensor-soil`, `gt-sensor-light` and the test helpers. The other programs are built automatically once their source files exist.
+
 ## Troubleshooting
 
 - **`36` is missing from `i2cdetect -y 1`:** check that I2C is enabled in `raspi-config` and that SDA (pin 3) and SCL (pin 5) are wired the right way round. Also check 3.3 V and GND on the soil sensor.
@@ -114,9 +115,8 @@ Today this builds only `gt-supervisor` and a test helper. The other programs are
 
 These are the parts still to come. The issue numbers are on the repository's issue tracker.
 
-- Sensor readers (soil over I2C, light on GPIO17) and the hub that collects their readings
-- Storage layer in `src/store`: segment files, CRC, crash recovery and range reads (#37, #36, #35, #34, #33)
-- Test tools: fake sensor feeder, log checker, kill loop (#41, #40, #39)
+- The hub that collects the sensor readings and writes the store, and supervisor heartbeat deadlines
+- Checking the soil and light drivers on the Pi (raw reads, GPIO17 level)
 - Analysis: dry-down detection and time-until-dry (#27), light-adjusted prediction (#26)
 - LAN page (#25) and the "needs water" state on it (#43)
 - Sensor calibration tests and crash-safety runs (#32, #29, #30, #31)
