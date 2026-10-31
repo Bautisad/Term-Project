@@ -16,6 +16,14 @@ if(UNIX AND TARGET gt-supervisor)
   set_tests_properties(supervisor_behavior PROPERTIES TIMEOUT 60)
 endif()
 
+# IPC send/receive: round trips, malformed messages, EOF, listening socket.
+if(UNIX AND TARGET gt_ipc)
+  add_executable(ipc_test ipc_test.c)
+  target_link_libraries(ipc_test PRIVATE gt_ipc)
+  add_test(NAME ipc_roundtrip COMMAND ipc_test)
+  set_tests_properties(ipc_roundtrip PROPERTIES TIMEOUT 30)
+endif()
+
 # Store write path: CRC32, record encoding, segments, append, lock, tail check.
 if(UNIX AND TARGET gt_store)
   add_executable(store_test store_test.c)
