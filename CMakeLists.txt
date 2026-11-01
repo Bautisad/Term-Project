@@ -73,6 +73,9 @@ gt_library(gt_analysis analysis)   # Duke
 if(TARGET gt_analysis AND UNIX)
   target_link_libraries(gt_analysis PUBLIC m)
 endif()
+if(TARGET gt_sensors AND TARGET gt_ipc)
+  target_link_libraries(gt_sensors PUBLIC gt_ipc)  # sensors send through ipc_io
+endif()
 
 # --- Daemons ------------------------------------------------------------------
 gt_daemon(gt-supervisor    supervisor/main.c     gt_supervisor_core gt_ipc)
