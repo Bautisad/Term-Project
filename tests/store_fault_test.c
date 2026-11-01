@@ -392,7 +392,8 @@ static void enter_small_fs(const char* mnt)
     write_file("/proc/self/uid_map", map);
     (void)snprintf(map, sizeof map, "0 %u 1", (unsigned)gid);
     write_file("/proc/self/gid_map", map);
-    CHECK(mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) == 0);
+    /* The kernel ignores the type here; valgrind on aarch64 flags a NULL one. */
+    CHECK(mount(NULL, "/", "none", MS_REC | MS_PRIVATE, NULL) == 0);
     CHECK(mount("tmpfs", mnt, "tmpfs", 0, "size=64k") == 0);
 }
 
@@ -511,7 +512,7 @@ static void test_enospc_on_new_segment(const char* mnt)
 
 static void remount(const char* mnt, unsigned long flags)
 {
-    CHECK(mount(NULL, mnt, NULL, MS_REMOUNT | flags, NULL) == 0);
+    CHECK(mount(NULL, mnt, "none", MS_REMOUNT | flags, NULL) == 0);
 }
 
 /* A read-only disk: the writer cannot start and says why (EROFS), the data stays readable,
