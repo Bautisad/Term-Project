@@ -7,7 +7,8 @@
 #   --count N      take N reads
 #   --duration S   read for S seconds: ceil(S / interval) reads, so 172800 s at 60 s is 2880
 #   --interval S   seconds between reads, default 1.  Reads are scheduled from the start time,
-#                  so a slow read does not push the later ones back.
+#                  so a slow read does not push the later ones back.  elapsed_s is the
+#                  scheduled offset (read number * interval); time_utc is when the read ran.
 #   --label TEXT   tag put in every line (no commas), e.g. s2 or insert-3
 #   --out FILE     append the CSV to FILE (the header only when the file is empty) and print
 #                  the summary on stdout.  Without it the CSV goes to stdout, the summary to stderr.
@@ -162,9 +163,8 @@ sanitize() {
 }
 
 read_once() {
-    now=$(date +%s)
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    el=$((now - START))
+    el=$((k * INTERVAL))
     out=$($TO "$CMD" -y 1 w2@0x36 0x0F 0x10 r2 2>"$ERRF")
     rc=$?
     READS=$((READS + 1))
