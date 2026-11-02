@@ -80,6 +80,17 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TARGET gt_interface)
   set_tests_properties(interface_daemon PROPERTIES TIMEOUT 120)
 endif()
 
+# LAN page binary: the real gt-interface next to a real gt-feeder, started the way the supervisor
+# starts it (control socket on fd 3): exit codes, heartbeats, the page following a store that
+# appears, no stray descriptors, clean SIGTERM.  Linux only: prctl, /proc.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TARGET gt-interface AND TARGET gt-feeder)
+  add_executable(interface_lifecycle_test interface_lifecycle_test.c)
+  target_link_libraries(interface_lifecycle_test PRIVATE gt_interface)
+  add_test(NAME interface_lifecycle
+           COMMAND interface_lifecycle_test $<TARGET_FILE:gt-interface> $<TARGET_FILE:gt-feeder>)
+  set_tests_properties(interface_lifecycle PROPERTIES TIMEOUT 120)
+endif()
+
 # Store write path: CRC32, record encoding, segments, append, lock, tail check.
 if(UNIX AND TARGET gt_store)
   add_executable(store_test store_test.c)
