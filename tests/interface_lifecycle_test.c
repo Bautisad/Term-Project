@@ -2,7 +2,8 @@
  * control socket on fd 3, no arguments but the test's own) next to a real gt-feeder, and checks
  * what the supervisor and a browser can see: exit codes, heartbeats, the page following a store
  * that appears, no stray descriptors, and a clean stop.  argv[1] is gt-interface and argv[2] is
- * gt-feeder.  Linux only (prctl, /proc).  Exits 1 at the first failed check. */
+ * gt-feeder.  Linux only (prctl, /proc, pidfd_getfd).  Exits 1 at the first failed check. */
+#define _GNU_SOURCE /* syscall, SO_DOMAIN */
 #include <arpa/inet.h>
 #include <dirent.h>
 #include <errno.h>
@@ -18,6 +19,7 @@
 #include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -321,6 +323,103 @@ static void check_fd_kinds(pid_t pid)
     CHECK(closedir(d) == 0);
 }
 
+/* --- sockets: nothing leaves the machine ------------------------------------------------ */
+
+/* The other half of tools/nonetcheck.sh: a text scan cannot see a call made through a macro or a
+ * function pointer, but the kernel can say what the running process holds.  Each of the daemon's
+ * sockets is borrowed with pidfd_getfd (Linux 5.6) and asked its family, type and port.  /proc/net
+ * is no use for this: an unbound UDP socket is not listed there at all.  Every socket must be the
+ * supervisor's AF_UNIX link, the page's one listener, or a TCP connection accepted on the
+ * listener's port; a TCP socket on any other local port is one the daemon opened itself. */
+#ifndef SYS_pidfd_open
+#define SYS_pidfd_open 434 /* the same number on every architecture that has it */
+#endif
+#ifndef SYS_pidfd_getfd
+#define SYS_pidfd_getfd 438
+#endif
+
+static void check_sockets(pid_t pid, unsigned port, unsigned min_conns)
+{
+    char           path[64];
+    DIR*           d;
+    struct dirent* e;
+    unsigned       listeners = 0;
+    unsigned       conns = 0;
+    int            pidfd = (int)syscall(SYS_pidfd_open, pid, 0);
+
+    if (pidfd < 0) {
+        (void)fprintf(stderr, "pidfd_open failed, errno %d\n", errno);
+        CHECK(!"cannot inspect the daemon's sockets (needs Linux 5.6)");
+    }
+    CHECK(snprintf(path, sizeof path, "/proc/%d/fd", (int)pid) > 0);
+    d = opendir(path);
+    CHECK(d != NULL);
+    while ((e = readdir(d)) != NULL) {
+        char               link[128];
+        char               target[128];
+        ssize_t            n;
+        int                theirs;
+        int                mine;
+        int                domain = 0;
+        int                type = 0;
+        int                accepting = 0;
+        socklen_t          len;
+        struct sockaddr_in local;
+
+        if (e->d_name[0] == '.' || (theirs = atoi(e->d_name)) < 3) {
+            continue;
+        }
+        CHECK(snprintf(link, sizeof link, "%s/%s", path, e->d_name) < (int)sizeof link);
+        n = readlink(link, target, sizeof target - 1);
+        if (n < 0 && errno == ENOENT) {
+            continue; /* closed while we were looking */
+        }
+        CHECK(n > 0);
+        target[n] = '\0';
+        if (strncmp(target, "socket:[", 8) != 0) {
+            continue; /* the signalfd; check_fd_kinds has judged what is not a socket */
+        }
+        mine = (int)syscall(SYS_pidfd_getfd, pidfd, theirs, 0);
+        if (mine < 0 && errno == EBADF) {
+            continue; /* closed since the readlink */
+        }
+        if (mine < 0) {
+            (void)fprintf(stderr, "pidfd_getfd failed, errno %d\n", errno);
+            CHECK(!"cannot borrow the daemon's socket (ptrace permission, or Linux before 5.6)");
+        }
+        len = sizeof domain;
+        CHECK(getsockopt(mine, SOL_SOCKET, SO_DOMAIN, &domain, &len) == 0);
+        len = sizeof type;
+        CHECK(getsockopt(mine, SOL_SOCKET, SO_TYPE, &type, &len) == 0);
+        if (domain == AF_UNIX) {
+            CHECK(type == SOCK_SEQPACKET); /* the supervisor's link, nothing else is local */
+        } else if (domain == AF_INET) {
+            len = sizeof accepting;
+            CHECK(getsockopt(mine, SOL_SOCKET, SO_ACCEPTCONN, &accepting, &len) == 0);
+            len = sizeof local;
+            CHECK(getsockname(mine, (struct sockaddr*)&local, &len) == 0);
+            if (type != SOCK_STREAM || ntohs(local.sin_port) != port) {
+                (void)fprintf(stderr, "fd %d: AF_INET type %d on local port %u, the page is TCP on %u\n",
+                              theirs, type, (unsigned)ntohs(local.sin_port), port);
+                CHECK(!"an internet socket that is not the page's listener or a connection to it");
+            }
+            if (accepting != 0) {
+                listeners++;
+            } else {
+                conns++;
+            }
+        } else {
+            (void)fprintf(stderr, "fd %d: socket family %d\n", theirs, domain);
+            CHECK(!"a socket that is neither local nor the page's own");
+        }
+        CHECK(close(mine) == 0);
+    }
+    CHECK(closedir(d) == 0);
+    CHECK(close(pidfd) == 0);
+    CHECK(listeners == 1);           /* we did see the listener, so the inspection works */
+    CHECK(conns >= min_conns);       /* and the connections we are holding */
+}
+
 /* --- the browser ------------------------------------------------------------------------ */
 
 static int dial(unsigned port)
@@ -587,6 +686,28 @@ static void full_run(const char* tmp)
     /* Descriptors: only sockets and the signalfd, and the same number after a rough crowd. */
     check_fd_kinds(pid);
     before = fd_count(pid);
+    {   /* three browsers mid-request: their sockets are the only TCP ones besides the listener */
+        int     held[3];
+        int64_t end = mono_ms() + 3000;
+
+        for (size_t i = 0; i < 3; i++) {
+            held[i] = dial(port);
+            send_all(held[i], "GET /sta");
+        }
+        while (fd_count(pid) < before + 3 && mono_ms() < end) {
+            nap(20);
+        }
+        CHECK(fd_count(pid) == before + 3);
+        check_sockets(pid, port, 3);
+        for (size_t i = 0; i < 3; i++) {
+            CHECK(close(held[i]) == 0);
+        }
+        end = mono_ms() + 3000;
+        while (fd_count(pid) != before && mono_ms() < end) {
+            nap(20);
+        }
+        CHECK(fd_count(pid) == before);
+    }
     flood(port);
     {
         int64_t end = mono_ms() + 3000;
@@ -608,6 +729,7 @@ static void full_run(const char* tmp)
     }
     CHECK(after == before);
     check_fd_kinds(pid);
+    check_sockets(pid, port, 0);
 
     /* Told to stop: exit 0, said so, and the port is free again. */
     CHECK(kill(pid, SIGTERM) == 0);

@@ -91,6 +91,22 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TARGET gt-interface AND TARGET gt-feed
   set_tests_properties(interface_lifecycle PROPERTIES TIMEOUT 120)
 endif()
 
+# No outbound network (CLAUDE.md, a graded boundary): tools/nonetcheck.sh on the real src/ and
+# the built gt-interface, and the guard's own test, which plants each kind of violation in a
+# copy of src/ and checks that it is caught (and that comments and plain names are not).
+if(UNIX)
+  add_test(NAME nonet_behavior
+           COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/nonet_test.sh
+                   ${CMAKE_SOURCE_DIR}/tools/nonetcheck.sh ${CMAKE_SOURCE_DIR}/src)
+  set_tests_properties(nonet_behavior PROPERTIES TIMEOUT 120)
+endif()
+if(UNIX AND TARGET gt-interface)
+  add_test(NAME nonet_src
+           COMMAND sh ${CMAKE_SOURCE_DIR}/tools/nonetcheck.sh ${CMAKE_SOURCE_DIR}/src
+                   $<TARGET_FILE:gt-interface>)
+  set_tests_properties(nonet_src PROPERTIES TIMEOUT 60)
+endif()
+
 # Store write path: CRC32, record encoding, segments, append, lock, tail check.
 if(UNIX AND TARGET gt_store)
   add_executable(store_test store_test.c)
