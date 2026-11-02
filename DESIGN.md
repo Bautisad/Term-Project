@@ -52,7 +52,7 @@ Thresholds in [brackets] are our first guesses and will be set from measurements
  
 | # | Component | How it fails | How we detect it | What the system does | What the log shows (draft) | Verified by |
 |---|---|---|---|---|---|---|
-| 1 | Soil sensor | Wire loose or disconnected. The I2C read may fail outright (row 4) or return a value stuck at 0 or full scale (row 5). | Raw value outside [calibrated dry − margin, wet + margin], or noise far above normal | Soil field marked INVALID, never stored as a good reading. Analysis skips it. Light and hub keep running. Sampling continues, so it recovers when the wire is back. | `WARN soil status=0x01 raw=65535 seq=4812` (0x01 = INVALID) | S6 |
+| 1 | Soil sensor | Wire loose or disconnected. The I2C read may fail outright (row 4) or return a value stuck at 0 or full scale (row 5). | Raw value outside [calibrated dry − margin, wet + margin], or noise far above normal. In use: the draft bounds `[250,1100]`, kept on 2026-11-02 and not calibrated. Observed range: about 320 (probe in air) to 977 (wet soil). S1 was not run, so there is no measured dry/wet range. If real history nears an edge, widen the bounds, do not tighten them. | Soil field marked INVALID, never stored as a good reading. Analysis skips it. Light and hub keep running. Sampling continues, so it recovers when the wire is back. | `WARN soil status=0x01 raw=65535 seq=4812` (0x01 = INVALID) | S6 |
 | 2 | Soil sensor | Stuck reading | Identical raw value for [60] consecutive samples. Real soil plus sensor noise rarely does this, but very stable soil might (see note). | Flag STUCK, log once, keep storing the raw value, exclude it from analysis | `WARN soil status=0x02 raw=700 seq=4850` (0x02 = STUCK, logged when the status changes) | S6 |
 | 3 | Soil sensor | Noise spike | Sample differs from the median of the last [5] by more than [N]% of span | Median-of-N filter discards the spike and counts it | `INFO soil spike_rejected raw=29100 median=14620 seq=4901` | S2 |
 | 4 | Soil sensor (I2C) | I2C transfer to the soil sensor (0x36) fails | The syscall returns an error (errno is logged) | Retry [3] times, then mark this cycle INVALID. After [5] failed cycles in a row, exit nonzero so the supervisor restarts the process. | `ERROR soil read_failed errno=5 attempt=3/3 seq=4902`, then after the fifth failed cycle `ERROR soil giving_up failed_cycles=5` | NEW (unplug the soil sensor SDA/SCL, or disable I2C) |
@@ -165,7 +165,7 @@ A note on the targets: most sensor targets below are our best guesses before we'
 | Super-dry soil | about 565 |
 | Wet soil | about 977 |
 
-The glass of water reads below dry soil. That was repeatable in two runs and was not investigated; the product reads soil, so S1 uses soil only. A single soil reading varies by about 16 counts (one standard deviation) in these sets. The invalid-reading bounds in the failure table (`[250,1100]`) are drafts built from these numbers and get refined after S1.
+The glass of water reads below dry soil. That was repeatable in two runs and was not investigated; the product reads soil, so S1 uses soil only. A single soil reading varies by about 16 counts (one standard deviation) in these sets. The invalid-reading bounds in the failure table (`[250,1100]`) are drafts built from these numbers. S1 was not run, so they were kept as they are (decision of 2026-11-02, failure table row 1).
 
 | ID | Test | Method | Target |
 |----|------|--------|--------|
