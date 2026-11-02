@@ -8,6 +8,7 @@ For the architecture the system is one supervisor plus three worker processes, a
 --**gt-sensor-light** counts the bright/dark transitions on the LM393 DO pin (which is gpio17) and sends a summary message to the hub once a minute. 
 - **gt-hub is the only writer, once a minnute it builds one 24-byte record from the latest soil and the light messages and then appends it with 'store_append'.
 - **analysis and interface** read the store through 'store_read_range'. Because of that they don't talk to the hub or sensors.
+- **gt-interface** serves the LAN page. It listens on TCP port 8080, answers only private IPv4 addresses, and accepts at most [8] connections at once, each with [5 s] to finish its request. It rebuilds its answer from the last 24 hours of the store at most every [5 s], and only when a request needs it. It sends heartbeats like the other children. It is the only process that accepts network connections, and it opens none.
 
 ## Data flow and rates
 | From | To | Channel | Message | Rate | Size |
@@ -17,6 +18,8 @@ For the architecture the system is one supervisor plus three worker processes, a
 | gt-hub | store (disk) | `store_append`, fsync after each record | record | 1 per minute | 24 B (about 35 KB per day) |
 | each child | gt-supervisor | socketpair inherited as fd 3 | GT_MSG_HEARTBEAT | every 10 s | 24 B |
 | gt-supervisor | children | fork/exec, SIGTERM, SIGKILL | none | only on start, stop or failure | none |
+| gt-interface | store (disk) | `store_read_range`, read only, the last 24 hours | records | at most once every [5 s], and only when a request needs it | up to about 35 KB (1,440 records of 24 B) |
+| a browser on the LAN | gt-interface | TCP port 8080, HTTP GET of `/`, `/index.html` or `/status.json`, private IPv4 peers only | request, then the page or the JSON | one request per page load | request up to 2 KB, response under 9 KB |
 
 ### Operating-System mechanisms used
 -** fork,exec,waitpid** (supervisor starts and reaps childrien)
@@ -41,6 +44,7 @@ so then the gap appears in the log. Since the store is append only, a crash lose
 | Custom storage layer (mechanism D) | src/store | store_test, store_failures and store_error_paths (fault injection on every libc call), the kill -9 loop, and the log checker | Implemented |
 | Watchdog through heartbeats | src/supervisor, src/ipc | Planned test: a child that goes silent is logged at 30 s and killed at 60 s | Sensors send heartbeats (soil_process, light_process); the supervisor does not check deadlines yet |
 | Custom drivers | src/sensors | Userspace drivers over kernel interfaces (i2c-dev, GPIO character device), not a kernel module. The loops run in tests with fake drivers (soil_logic, light_logic, soil_process, light_process); the real drivers are checked on the Pi with raw sensor reads and the GPIO17 level | Sensor processes and drivers written; drivers checked on the Pi on 2026-11-02 (see HARDWARE-CHECKS.md) |
+| LAN page daemon | src/interface | `interface_page` (states and rendering), `interface_http` (the strict request parser, response builder and private-address check, with a fuzz pass), `interface_daemon` (the real loop over loopback TCP: routes, connection limit and deadline, refresh interval, heartbeats, exit codes, no leaked descriptors), `interface_lifecycle` (the real binary with the real feeder: exit codes, heartbeat, the page following a store that appears, descriptors and sockets), and `nonet_src` and `nonet_behavior` (the no-outbound-network rule) | Implemented and run on the Pi on 2026-11-02 (see HARDWARE-CHECKS.md). It shows fake-feeder data until the hub exists, the supervisor does not start it yet, and needs-water and time-until-dry say "not enough data" until the analysis exists |
 
 
 ## Failure-Mode Table
@@ -72,7 +76,7 @@ Thresholds in [brackets] are our first guesses and will be set from measurements
 | 18 | Clock | Wrong time after reboot. We make no network calls, so there's no NTP, and the Pi's real-time clock needs a backup battery to keep time. | New timestamp earlier than the last stored one, or earlier than the build time | Flag the record TIME_UNSET. Rely on sequence numbers and the monotonic clock until the time is fixed. | `WARN clock backwards now=2026-01-01T00:00:03 last=2026-10-25T19:00:00 seq=5300` | NEW (set the clock back with `date`) |
 | 19 | Power | Brownout or under-voltage. Both sensors run from the 3.3 V rail, so a sag can shift the soil reading or flip the light flag. | Pi under-voltage flag (kernel message, or `vcgencmd get_throttled`). We need to confirm this works on the Pi 5. | Log it and flag samples taken during the event | `WARN power undervoltage seq=5400` | NEW |
 | 20 | Analysis | Wrong or unsupported prediction (no crash) | Too few dry-down cycles recorded, or recent data is INVALID or STUCK | Withhold the prediction and show "not enough data" | `INFO analysis prediction_withheld reason=insufficient_cycles have=2 need=3` | C3 |
-| 21 | LAN page | Process dies | Supervisor, as in row 8 | Restart. Logging is unaffected because processes are isolated. | As row 8 | P3 |
+| 21 | LAN page | Process dies | Supervisor, as in row 8 | Restart. Logging is unaffected because processes are isolated. | As row 8 | P3. The real binary's exit codes, heartbeat and clean SIGTERM are in `interface_lifecycle`; the kill-and-restart run needs the supervisor to start it, which it does not yet |
  
 **Note on row 2:** a stuck-sensor check can false-alarm in very stable soil. We measure how often it does on clean data, and we adjust the threshold or report the false-alarm rate here.
  
@@ -142,6 +146,7 @@ What happens when power dies mid-write?
 - We claim the device predicts time-until-dry for **this plant in this pot**, within [X]% over [N] cycles. We do not claim it generalizes.
 - We treat light as a **bright/dark flag**. We claim only that it separates lit from unlit at the pot's setting, based on the baseline readings in Part 2. We do not claim it reports a light level or true lux, or that the switch point stays consistent over days.
 - Without a temperature reading, we report any light-vs-dry-down relationship as a trend that temperature may also explain.
+- The LAN page says "not enough data" for needs-water and time-until-dry until the analysis (#27, #26, #43) exists, and shows OK only for a fresh, valid record with nothing flagged. Its limits are drafts: [3 min] without a record is stale, a record [60 s] ahead of the clock is a clock fault, [100 MB] free is low disk, and [24 h] is the history it reads.
 
 ## Evaluation Plan
 Our device uses two sensors, a capacitive soil moisture sensor (read over I2C) and a light sensor that reports bright or dark (an LM393 module with an LDR), to tell us when a houseplant needs water and why. Our design doc says the biggest risk is that drift or noise makes the readings look confident but wrong. So this plan mostly tests the sensors themselves: are they accurate, stable, and actually useful together? A short last section checks that the data survives crashes and power loss.
@@ -268,8 +273,8 @@ Limits of this result:
 |---|---|
 | src/store | The custom storage layer. It keeps an append-only log of fixed-size binary records (about 24 bytes), each ending in a CRC32, in one segment file per day or week. It calls fsync after every append and after creating a segment. On startup it scans the newest segment, truncates after the last valid record, and logs how many bytes were dropped. It also serves reads by time range. |
 | src/analysis | Reads the history through store_read_range. It combines soil and light readings to judge whether the plant needs water and how soon, applies per-plant thresholds, and flags drift or noise in the sensors. All of it is written by us. |
-| src/interface | The LAN-only interface that shows results to the user. It makes no calls outside the local network. |
-| tools/ | Test helpers: a fake sensor feeder, a log checker (every CRC passes, sequence numbers are contiguous with at most one lost record, a recovery entry is logged), a CSV export script, and a kill loop that runs kill -9 on the writer at random moments. |
+| src/interface | The LAN page. `page.c` decides the state and renders the HTML and JSON, `http.c` is the strict request parser, response builder and private-address check, `daemon.c` is the poll loop (sockets, heartbeat, store refresh) and `main.c` is the program. It makes no calls outside the local network, and `tools/nonetcheck.sh` and the lifecycle test check that. |
+| tools/ | Test helpers: a fake sensor feeder, a log checker (every CRC passes, sequence numbers are contiguous with at most one lost record, a recovery entry is logged), a CSV export script, a kill loop that runs kill -9 on the writer at random moments, and a scan of the source and the built page daemon that enforces the no-outbound-network rule (nonetcheck.sh). |
 | Physical build | Duke builds Andrew's wiring on the Pi and runs the hardware tests. |
 
 ### Shared contracts (frozen first; changed only with both owners' agreement)
