@@ -235,6 +235,19 @@ The sensors only matter if the log we build from them stays trustworthy. These t
 |----|--------|----------|--------|------|-------|
 | P1 | 500 kills, 0 CRC failures mid-log, at most 1 record lost per kill, "recovered" logged each time | 500 of 500 passed, 0 failed; `max_dropped=0`, `torn_restarts=0`; 1,000 records/s, kill 1-1000 ms after ready; store on SD card (ext4); seed 1793573235; commit `ac42b0b` | PASS | 2026-11-01 | Target met and not changed. No kill left a partial record, so the torn-tail truncation was not exercised here (likely one `write()` per record and `kill -9` does not split it; untested). Power loss is P2. |
 
+**Measured results (P2).** Captured on the Pi with `gt-feeder --progress-sync` and `gt-logcheck`, with the store and the progress file both on the SD card (ext4). The target in the table above is 10 pulls. Duke ran 2, on 2026-11-02, because of the time each pull takes and the risk to the SD card. The other conditions are unchanged, and the remaining 8 pulls were not run.
+
+| ID | Target | Measured | Result | Date | Notes |
+|----|--------|----------|--------|------|-------|
+| P2 | 10 pulls, 0 unrecoverable logs, at most 1 record lost per pull | 2 of 10 pulls run. Pull 1 at `--rate 0` (about 105 records/s): 2,896 records, `lost=0 corrupt=0`, the log ended at the last acknowledged seq (`acked=2896`). Pull 2 at `--rate 1`: 3,030 records, `lost=0 corrupt=0`, `acked=3030`. Both recoveries logged `dropped_bytes=0` and `recovered=1 max_dropped=0`. | PASS on the 2 run; 8 not run | 2026-11-02 | See the limits below. |
+
+Limits of this result:
+- Two pulls is a small sample. A card that loses data on only a fraction of pulls could pass two.
+- The witness (the fsynced progress file) is on the same SD card as the log. A card that reports fsync done too early could hide a loss in both.
+- `--rate 1` is the slowest the feeder offers, not the once-a-minute rate in the method, and at that pace a pull rarely lands mid-write.
+- No torn record was seen, so truncating a partial record after power loss was not exercised.
+- The writer log is not fsynced and its contents were lost in the pull, so each recovery was checked against a log of one start (`--restarts 0`).
+
 
 ## Ownership Map
 
