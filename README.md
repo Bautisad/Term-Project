@@ -2,7 +2,7 @@
 
 A small device that watches one houseplant's soil moisture and light, so the owner knows when to water instead of guessing. A Raspberry Pi 5 reads a capacitive soil moisture sensor and a bright/dark light module, keeps weeks of history in its own crash-safe log, and will show a "needs water" state on a page served only to the local network.
 
-**Status:** hardware bring-up, the build system, the supervisor, the IPC layer and the two sensor processes work in tests. The sensor drivers have not been checked on the Pi yet. The hub, analysis and LAN page are still being written (see [Not built yet](#not-built-yet)), so there is nothing to run end to end yet. This README covers wiring the hardware, checking that it works, and building and deploying what exists. Run instructions will be added when the device runs.
+**Status:** hardware bring-up, the build system, the supervisor, the IPC layer and the two sensor processes work in tests. The sensor drivers have been checked on the Pi (see [`HARDWARE-CHECKS.md`](HARDWARE-CHECKS.md)). The hub, analysis and LAN page are still being written (see [Not built yet](#not-built-yet)), so there is nothing to run end to end yet. This README covers wiring the hardware, checking that it works, and building and deploying what exists. Run instructions will be added when the device runs.
 
 ## Ground rules
 
@@ -105,7 +105,7 @@ Today this builds `gt-supervisor`, `gt-sensor-soil`, `gt-sensor-light` and the t
 ## Troubleshooting
 
 - **`36` is missing from `i2cdetect -y 1`:** check that I2C is enabled in `raspi-config` and that SDA (pin 3) and SCL (pin 5) are wired the right way round. Also check 3.3 V and GND on the soil sensor.
-- **The first soil read is `0xffff` (65535):** you probably ran `i2cdetect` just before. In our tests this happened on the first read after `i2cdetect` every time (3 of 3) and never otherwise (10 of 10). Read again; the next reads are normal. Do not run `i2cdetect` right before a measurement.
+- **The first soil read is `0xffff` (65535):** you probably ran `i2cdetect` just before. In our tests this happened on the first read after `i2cdetect` every time (4 of 4) and never otherwise (10 of 10). Read again; the next reads are normal. Do not run `i2cdetect` right before a measurement.
 - **The soil reading jumps after you moved the probe:** see step 2 above. Fix the probe in place and wait about ten seconds after placing it.
 - **`get_throttled` is not `0x0`:** use a proper Pi 5 power supply and a short, good cable.
 - **The light output never changes:** check 3.3 V, GND and the DO wire on pin 11, then turn the blue pot. The module's DO LED should flip when the light crosses the threshold.
@@ -116,7 +116,6 @@ Today this builds `gt-supervisor`, `gt-sensor-soil`, `gt-sensor-light` and the t
 These are the parts still to come. The issue numbers are on the repository's issue tracker.
 
 - The hub that collects the sensor readings and writes the store, and supervisor heartbeat deadlines
-- Checking the soil and light drivers on the Pi (raw reads, GPIO17 level)
 - Analysis: dry-down detection and time-until-dry (#27), light-adjusted prediction (#26)
 - LAN page (#25) and the "needs water" state on it (#43)
 - Sensor calibration tests and crash-safety runs (#32, #29, #30, #31)

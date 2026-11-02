@@ -40,7 +40,7 @@ so then the gap appears in the log. Since the store is append only, a crash lose
 | Multi-process isolation with a supervisor (mechanism E) | src/supervisor, src/ipc | tests/supervisor_test.sh: restart with backoff, no restart on a config exit, clean SIGTERM, no fd leak; `make memcheck` runs the supervisor under Valgrind | Supervisor restart and shutdown implemented; heartbeat deadlines and the hub and sensors are next |
 | Custom storage layer (mechanism D) | src/store | store_test, store_failures and store_error_paths (fault injection on every libc call), the kill -9 loop, and the log checker | Implemented |
 | Watchdog through heartbeats | src/supervisor, src/ipc | Planned test: a child that goes silent is logged at 30 s and killed at 60 s | Sensors send heartbeats (soil_process, light_process); the supervisor does not check deadlines yet |
-| Custom drivers | src/sensors | Userspace drivers over kernel interfaces (i2c-dev, GPIO character device), not a kernel module. The loops run in tests with fake drivers (soil_logic, light_logic, soil_process, light_process); the real drivers are checked on the Pi with raw sensor reads and the GPIO17 level | Sensor processes and drivers written; drivers not yet checked on the Pi |
+| Custom drivers | src/sensors | Userspace drivers over kernel interfaces (i2c-dev, GPIO character device), not a kernel module. The loops run in tests with fake drivers (soil_logic, light_logic, soil_process, light_process); the real drivers are checked on the Pi with raw sensor reads and the GPIO17 level | Sensor processes and drivers written; drivers checked on the Pi on 2026-11-02 (see HARDWARE-CHECKS.md) |
 
 
 ## Failure-Mode Table
