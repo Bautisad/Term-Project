@@ -111,3 +111,38 @@ usage: build/gt-sensor-soil [--dev PATH] [--hub PATH] [--samples N] [--lo N] [--
 - The soil process's once-a-minute cadence over several cycles.
 - Fault behaviour on real hardware (a disconnected DO wire, a pulled soil probe): tests S6 and L6, issue #30.
 - Anything about `0xffff` beyond the 4 of 4 count. The mechanism is still unexplained, and Andrew diagnoses it.
+
+## 2026-11-02: the LAN page on the Pi
+
+Run on the Pi (`greenthumb`, Pi 5) in `~/Documents/Term-Project`. The commit was not pasted; the 23 tests below include the two `nonet` tests from PR #73, so it had at least that code. The sensors and the hub were not involved: the data came from the fake sensor feeder (`gt-feeder`), because `src/hub` does not exist yet. So the soil and light values below are the feeder's made-up numbers, not readings.
+
+### Test suite
+
+`make test` on the Pi: 100% passed, 0 failed out of 23 (total 58.95 s). The 23 include `interface_page`, `interface_http`, `interface_daemon`, `interface_lifecycle`, `nonet_behavior` and `nonet_src`, which had not run on the Pi before. Only the summary was pasted, so the per-test times are not recorded. `make asan` and `make memcheck` were not run on the Pi.
+
+### Feeder
+
+```
+$ build/tools/gt-feeder --dir /tmp/gt-demo --rate 1
+2026-11-02T23:42:31Z INFO store recovered segment=none dropped_bytes=0 last_seq=none
+2026-11-02T23:42:31Z INFO feeder start dir=/tmp/gt-demo rate=1 resumed_seq=1 dropped_bytes=0
+2026-11-02T23:42:31Z INFO store segment_created segment=2026-11-02.log
+^C2026-11-02T23:46:42Z INFO feeder done records=251 last_seq=251 elapsed_ms=250479 rate=1.0
+```
+
+### The page
+
+`gt-interface` was run on the same directory (`/tmp/gt-demo`) and its status was read from the Pi. The command line and the daemon's own log were not pasted. A feeder was writing again when this was read: the newest record is 0 seconds old and the count is 254, which is the 251 above plus 3 more.
+
+```
+{"state":"ok","reasons":[],"store_errno":0,"age_s":0,"soil":{"raw":598,"age_s":0},"light":{"bright":false,"bright_ms":3302,"age_s":0},"needs_water":"unknown","time_until_dry":null,"disk_free_mb":4031,"window":{"records":254,"soil_invalid":0,"soil_stuck":0,"light_invalid":0,"undervolt":0,"time_unset":0,"gap_events":0,"missing":0,"corrupt":0}}
+```
+
+Reported by Duke, not pasted: the page loaded on an iPhone in Safari, using the `greenthumb.local` name (not the IP address). No screenshot was kept.
+
+### Not covered by this entry
+
+- Real sensor data through the hub (there is no hub), and the page under the supervisor: `./gt-interface` is not in the supervisor's default child list yet.
+- The stale and degraded cases on the Pi (the feeder stopped for more than 3 minutes, a missing store). They are covered by tests on the development machine and in `make test` on the Pi, but were not looked at on a phone.
+- A phone that is not on a private network, and an Android phone (`.local` names often do not resolve there).
+- A long run of the page. Only a few minutes were watched.
