@@ -55,6 +55,14 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TARGET gt_sensors)
   set_tests_properties(light_process PROPERTIES TIMEOUT 60)
 endif()
 
+# LAN page logic: states, reasons, history notes and both renderings, with no network.
+if(UNIX AND TARGET gt_interface)
+  add_executable(interface_page_test interface_page_test.c)
+  target_link_libraries(interface_page_test PRIVATE gt_interface)
+  add_test(NAME interface_page COMMAND interface_page_test)
+  set_tests_properties(interface_page PROPERTIES TIMEOUT 30)
+endif()
+
 # Store write path: CRC32, record encoding, segments, append, lock, tail check.
 if(UNIX AND TARGET gt_store)
   add_executable(store_test store_test.c)

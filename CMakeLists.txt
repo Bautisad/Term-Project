@@ -70,6 +70,7 @@ gt_library(gt_sensors  sensors)    # Andrew: drivers shared by both sensor procs
 gt_library(gt_supervisor_core supervisor)  # Andrew: everything but supervisor/main.c
 gt_library(gt_store    store)      # Duke
 gt_library(gt_analysis analysis)   # Duke
+gt_library(gt_interface interface) # Duke: LAN page logic and HTTP; main.c is the daemon
 if(TARGET gt_analysis AND UNIX)
   target_link_libraries(gt_analysis PUBLIC m)
 endif()
