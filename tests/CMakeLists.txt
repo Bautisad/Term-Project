@@ -61,6 +61,13 @@ if(UNIX AND TARGET gt_interface)
   target_link_libraries(interface_page_test PRIVATE gt_interface)
   add_test(NAME interface_page COMMAND interface_page_test)
   set_tests_properties(interface_page PROPERTIES TIMEOUT 30)
+
+  # LAN page HTTP: the strict request parser (every refusal, every split position, a seeded
+  # fuzz pass), the response builder and the private-peer check.
+  add_executable(interface_http_test interface_http_test.c)
+  target_link_libraries(interface_http_test PRIVATE gt_interface)
+  add_test(NAME interface_http COMMAND interface_http_test)
+  set_tests_properties(interface_http PROPERTIES TIMEOUT 120)
 endif()
 
 # Store write path: CRC32, record encoding, segments, append, lock, tail check.
