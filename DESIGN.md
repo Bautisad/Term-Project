@@ -229,6 +229,12 @@ The sensors only matter if the log we build from them stays trustworthy. These t
 | P3 | Restart after a child process is killed *(correctness)* | Kill the soil process, the light process, and the hub at random moments, 200 times each, and time the restart. | Median restart under 5 s and p99 under 10 s. The surviving sensor keeps logging and the gap shows up in the event log. |
 | P4 | 48-hour soak with real sensors *(correctness)* | Run the full system unattended on the Pi with both real sensors for 48 hours, recording each process's memory (RSS) and open file counts every hour. | 2,880 records with no unexplained sequence gaps, RSS growth under 1 MB per process, constant fd counts, and 0 unplanned supervisor restarts. |
 
+**Measured results (P1).** Captured with `tools/killloop.sh` on the Pi. The targets above are not edited: a miss is recorded here with the reason.
+
+| ID | Target | Measured | Result | Date | Notes |
+|----|--------|----------|--------|------|-------|
+| P1 | 500 kills, 0 CRC failures mid-log, at most 1 record lost per kill, "recovered" logged each time | 500 of 500 passed, 0 failed; `max_dropped=0`, `torn_restarts=0`; 1,000 records/s, kill 1-1000 ms after ready; store on SD card (ext4); seed 1793573235; commit `ac42b0b` | PASS | 2026-11-01 | Target met and not changed. No kill left a partial record, so the torn-tail truncation was not exercised here (likely one `write()` per record and `kill -9` does not split it; untested). Power loss is P2. |
+
 
 ## Ownership Map
 
