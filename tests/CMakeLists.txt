@@ -70,6 +70,16 @@ if(UNIX AND TARGET gt_interface)
   set_tests_properties(interface_http PROPERTIES TIMEOUT 120)
 endif()
 
+# LAN page daemon: the real loop in a forked child against real loopback TCP and a stand-in
+# supervisor (routes, store states, refresh, connection limit and deadline, heartbeats, exit
+# codes, no leaked descriptors).  Linux only: prctl, /proc.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TARGET gt_interface)
+  add_executable(interface_daemon_test interface_daemon_test.c)
+  target_link_libraries(interface_daemon_test PRIVATE gt_interface)
+  add_test(NAME interface_daemon COMMAND interface_daemon_test)
+  set_tests_properties(interface_daemon PROPERTIES TIMEOUT 120)
+endif()
+
 # Store write path: CRC32, record encoding, segments, append, lock, tail check.
 if(UNIX AND TARGET gt_store)
   add_executable(store_test store_test.c)
