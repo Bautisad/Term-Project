@@ -114,7 +114,7 @@ Today this builds `gt-supervisor`, `gt-hub`, `gt-sensor-soil`, `gt-sensor-light`
    sudo systemctl daemon-reload
    sudo systemctl enable --now greenthumb
    ```
-4. Check it. Expect `systemctl status greenthumb` to say `active (running)`, `journalctl -u greenthumb` to show `start child=` for `gt-hub`, `gt-sensor-soil` and `gt-sensor-light` and then `state=running` for each, `/run/greenthumb/hub.sock` to exist, and `/var/lib/greenthumb/store` to hold a segment file that grows by one record a minute.
+4. Check it. Expect `systemctl status greenthumb` to say `active (running)`, `journalctl -u greenthumb` to show `start child=` for `gt-hub`, `gt-sensor-soil`, `gt-sensor-light` and `gt-interface` and then `state=running` for each, `/run/greenthumb/hub.sock` to exist, `curl -s localhost:8080/status.json` to answer, and `/var/lib/greenthumb/store` to hold a segment file that grows by one record a minute.
 5. Break something. `sudo pkill -9 gt-hub`: expect `died signal=9` then `restart=1 delay=1s` in the journal, and a gap in the sequence numbers where the hub was down. Unplug the soil sensor: expect INVALID soil readings, and `giving_up` after five failed cycles.
 6. Stop it: `sudo systemctl stop greenthumb`. Expect `stopped` in the journal and exit status 0.
 
@@ -136,7 +136,7 @@ Then open `http://greenthumb.local:8080/` on a phone or laptop on the same netwo
 - **The store:** `--dir PATH` says where to read it (read only). The default, `/var/lib/greenthumb/store`, is where the hub is meant to write.
 - **What it shows:** the newest valid soil value and light state, how old they are, and a count of the last 24 hours of readings. "Needs water" and "time until dry" say "not enough data" until the analysis exists.
 - **When it says degraded:** it lists the reasons, for example no new reading for 3 minutes, a store it cannot read, invalid readings, an under-voltage event, a clock that is ahead, or low disk space. It never shows OK for a state it cannot judge.
-- **Not started by the supervisor yet:** run it by hand as above. Other flags (`--heartbeat-ms`, `--refresh-ms`) are for the tests.
+- **Started by the supervisor:** `gt-supervisor` starts `./gt-interface` with the hub and the sensors (with no `--dir` it reads `/var/lib/greenthumb/store`, where the hub writes); to run it by hand as above, use `--dir`. Other flags (`--heartbeat-ms`, `--refresh-ms`) are for the tests.
 
 ## Analyze the history
 
@@ -169,7 +169,7 @@ These are the parts still to come. The issue numbers are on the repository's iss
 - The whole device running on the Pi: the supervisor starting the hub and both sensors with the real sensors (`systemd/greenthumb.service` is written but not yet installed or tried on the Pi), then the 48-hour soak with a harness that measures the real processes (`tools/soakcheck.sh` still drives the feeder)
 - Supervisor: the `events.log` file, and killing orphaned children when it starts
 - Analysis: dry-down detection and time-until-dry (#27) is written and tested on synthetic data, and still has to be run on real recorded history; light-adjusted prediction (#26)
-- The "needs water" state on the LAN page (#43), and starting the page from the supervisor (`./gt-interface` is not in its default list yet)
+- The "needs water" state on the LAN page (#43)
 - Sensor calibration tests and crash-safety runs (#32, #29, #30, #31)
 
 ## More reading

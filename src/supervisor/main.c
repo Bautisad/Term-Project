@@ -6,7 +6,7 @@
  * delay held at the cap.  An events.log file is not written yet.
  *
  * usage: gt-supervisor [--soft S] [--hard S] [--grace S] [--max N] [--window S] [CHILD_PATH...]
- *        defaults: the ipc.h limits and ./gt-hub ./gt-sensor-soil ./gt-sensor-light
+ *        defaults: the ipc.h limits and ./gt-hub ./gt-sensor-soil ./gt-sensor-light ./gt-interface
  *        gt-supervisor --version
  * Exit: 0 clean shutdown, 1 no child left to supervise, 2 bad arguments. */
 #include <errno.h>
@@ -200,7 +200,8 @@ static bool set_limit(hb_limits* lim, const char* flag, const char* val)
 
 int main(int argc, char** argv)
 {
-    static const char* const defaults[] = {"./gt-hub", "./gt-sensor-soil", "./gt-sensor-light"};
+    static const char* const defaults[] = {"./gt-hub", "./gt-sensor-soil", "./gt-sensor-light",
+                                           "./gt-interface"};
     const char* const*       paths = defaults;
     size_t                   n = sizeof defaults / sizeof defaults[0];
     hb_limits                lim = {GT_HEARTBEAT_SOFT_S, GT_HEARTBEAT_HARD_S, GT_KILL_GRACE_S,
