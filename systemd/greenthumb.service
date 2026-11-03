@@ -11,7 +11,7 @@ User=dbautista
 SupplementaryGroups=i2c gpio
 WorkingDirectory=/home/dbautista/greenthumb/bin
 ExecStart=/home/dbautista/greenthumb/bin/gt-supervisor
-# Creates /run/greenthumb (hub socket) and /var/lib/greenthumb (store), owned by User.
+# Creates /run/greenthumb (hub socket) and /var/lib/greenthumb (the hub makes store/ inside it).
 RuntimeDirectory=greenthumb
 StateDirectory=greenthumb
 # DESIGN row 13: systemd is the supervisor's watcher.  If it dies, systemd kills the children

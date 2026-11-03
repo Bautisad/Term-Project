@@ -100,7 +100,25 @@ sudo apt install build-essential cmake rsync valgrind gcc-aarch64-linux-gnu
 
 A change counts as done only when `make`, `make test` and `make asan` all pass.
 
-Today this builds `gt-supervisor`, `gt-sensor-soil`, `gt-sensor-light`, `gt-interface` and the test helpers. The other programs are built automatically once their source files exist.
+Today this builds `gt-supervisor`, `gt-hub`, `gt-sensor-soil`, `gt-sensor-light`, `gt-interface` and the test helpers. The other programs are built automatically once their source files exist.
+
+## Run on the Pi
+
+**Not tried yet.** These steps come from the code and the systemd unit; nothing here has run on the Pi. Replace the "expect" lines with real output once someone has run it.
+
+1. Deploy from your Linux machine: `make deploy PI=dbautista@greenthumb.local`. The binaries land in `~/greenthumb/bin`.
+2. On the Pi, check the hardware first ([Check the hardware](#check-the-hardware)), then check the groups the unit needs: `getent group i2c gpio` must print both lines, or systemd refuses to start it.
+3. Copy `systemd/greenthumb.service` to the Pi and install it. It names the user `dbautista` and `/home/dbautista/greenthumb/bin`; edit those if you deployed elsewhere.
+   ```
+   sudo cp greenthumb.service /etc/systemd/system/
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now greenthumb
+   ```
+4. Check it. Expect `systemctl status greenthumb` to say `active (running)`, `journalctl -u greenthumb` to show `start child=` for `gt-hub`, `gt-sensor-soil` and `gt-sensor-light` and then `state=running` for each, `/run/greenthumb/hub.sock` to exist, and `/var/lib/greenthumb/store` to hold a segment file that grows by one record a minute.
+5. Break something. `sudo pkill -9 gt-hub`: expect `died signal=9` then `restart=1 delay=1s` in the journal, and a gap in the sequence numbers where the hub was down. Unplug the soil sensor: expect INVALID soil readings, and `giving_up` after five failed cycles.
+6. Stop it: `sudo systemctl stop greenthumb`. Expect `stopped` in the journal and exit status 0.
+
+The 48-hour soak is not wired up yet: `tools/soakcheck.sh` still drives the feeder, not these processes.
 
 ## View the page
 

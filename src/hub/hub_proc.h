@@ -3,7 +3,7 @@ binary and the tests run the same code*/
 #ifndef GT_HUB_PROC_H
 #define GT_HUB_PROC_H
 
-#define HUB_STORE_DEFAULT "/var/lib/greenthumb"
+#define HUB_STORE_DEFAULT "/var/lib/greenthumb/store"
 
 typedef struct hub_opts {
 	const char* sock_path; /*listening socket for the sensors*/
