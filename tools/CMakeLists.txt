@@ -19,6 +19,14 @@ if(UNIX AND TARGET gt_store)
   target_link_libraries(gt-csv PRIVATE gt_store)
   install(TARGETS gt-csv RUNTIME DESTINATION bin)
 
+  # gt-analyze: runs the dry-down analysis (#27) on a store. Installed for the Pi, where the
+  # recorded data is.
+  if(TARGET gt_analysis)
+    add_executable(gt-analyze analyze.c)
+    target_link_libraries(gt-analyze PRIVATE gt_analysis gt_store)
+    install(TARGETS gt-analyze RUNTIME DESTINATION bin)
+  endif()
+
   # killloop.sh: the P1 driver. Installed next to the binaries it runs, for the Pi.
   install(PROGRAMS killloop.sh DESTINATION bin)
 

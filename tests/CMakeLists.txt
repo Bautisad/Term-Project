@@ -55,6 +55,28 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TARGET gt_sensors)
   set_tests_properties(light_process PROPERTIES TIMEOUT 60)
 endif()
 
+# Analysis: dry-down cycle detection on synthetic soil series.
+if(UNIX AND TARGET gt_analysis)
+  add_executable(analysis_dry_test analysis_dry_test.c)
+  target_link_libraries(analysis_dry_test PRIVATE gt_analysis)
+  add_test(NAME analysis_dry COMMAND analysis_dry_test)
+  set_tests_properties(analysis_dry PROPERTIES TIMEOUT 60)
+
+  # Analysis: time-until-dry from the cycles, and the reasons it holds back.
+  add_executable(analysis_predict_test analysis_predict_test.c)
+  target_link_libraries(analysis_predict_test PRIVATE gt_analysis)
+  add_test(NAME analysis_predict COMMAND analysis_predict_test)
+  set_tests_properties(analysis_predict PROPERTIES TIMEOUT 60)
+
+  # Analysis on a real store on disk, through the library and the real gt-analyze.
+  if(TARGET gt-analyze AND TARGET gt_store)
+    add_executable(analysis_store_test analysis_store_test.c)
+    target_link_libraries(analysis_store_test PRIVATE gt_analysis gt_store)
+    add_test(NAME analysis_store COMMAND analysis_store_test $<TARGET_FILE:gt-analyze>)
+    set_tests_properties(analysis_store PROPERTIES TIMEOUT 300)
+  endif()
+endif()
+
 # LAN page logic: states, reasons, history notes and both renderings, with no network.
 if(UNIX AND TARGET gt_interface)
   add_executable(interface_page_test interface_page_test.c)
