@@ -317,6 +317,7 @@ static void routes_and_refusals(void)
     (void)get(p.port, "GET /status.json HTTP/1.1\r\n\r\n");
     CHECK(status_of() == 200 && has("Content-Type: application/json"));
     CHECK(strstr(body(), "\"records\":1") != NULL && strstr(body(), "\"raw\":600") != NULL);
+    CHECK(strstr(body(), "\"needs_water\":\"no\",\"dry_raw\":565,") != NULL); /* 600 > 565 */
     check_length();
 
     (void)get(p.port, "GET /nope HTTP/1.1\r\n\r\n");
@@ -409,6 +410,56 @@ static void store_states(void)
         CHECK(strstr(body(), "\"raw\":600") != NULL);
     }
     finish(&p, GT_EXIT_OK);
+    remove_dir(dir);
+}
+
+/* The dry line the daemon is given decides what the same store means. */
+static void needs_water_threshold(void)
+{
+    char       dir[256];
+    iface_opts o;
+    dproc      p;
+
+    make_dir(dir, sizeof dir);
+    add_record(dir, 1, 500);
+
+    o = base_opts(dir); /* the default line, 565: 500 is dry */
+    start(&p, &o);
+    (void)get(p.port, "GET /status.json HTTP/1.1\r\n\r\n");
+    CHECK(status_of() == 200);
+    CHECK(strstr(body(), "\"needs_water\":\"yes\",\"dry_raw\":565,") != NULL);
+    (void)get(p.port, "GET / HTTP/1.1\r\n\r\n");
+    CHECK(status_of() == 200 && strstr(body(), "Yes, water this plant") != NULL);
+    finish(&p, GT_EXIT_OK);
+
+    o = base_opts(dir);
+    o.dry_raw = 499; /* 500 is above this line */
+    start(&p, &o);
+    (void)get(p.port, "GET /status.json HTTP/1.1\r\n\r\n");
+    CHECK(strstr(body(), "\"needs_water\":\"no\",\"dry_raw\":499,") != NULL);
+    (void)get(p.port, "GET / HTTP/1.1\r\n\r\n");
+    CHECK(strstr(body(), "No. Soil reading 500, dry line 499") != NULL);
+    CHECK(strstr(body(), "Yes, water this plant") == NULL);
+    finish(&p, GT_EXIT_OK);
+
+    o = base_opts(dir);
+    o.dry_raw = 500; /* at the line is dry */
+    start(&p, &o);
+    (void)get(p.port, "GET /status.json HTTP/1.1\r\n\r\n");
+    CHECK(strstr(body(), "\"needs_water\":\"yes\",\"dry_raw\":500,") != NULL);
+    finish(&p, GT_EXIT_OK);
+
+    /* A store that is not there: unknown, never "no". */
+    {
+        char missing[300];
+
+        CHECK(snprintf(missing, sizeof missing, "%s/not-there", dir) < (int)sizeof missing);
+        o = base_opts(missing);
+        start(&p, &o);
+        (void)get(p.port, "GET /status.json HTTP/1.1\r\n\r\n");
+        CHECK(strstr(body(), "\"needs_water\":\"unknown\"") != NULL);
+        finish(&p, GT_EXIT_OK);
+    }
     remove_dir(dir);
 }
 
@@ -605,6 +656,7 @@ int main(void)
 {
     routes_and_refusals();
     store_states();
+    needs_water_threshold();
     connection_limits();
     heartbeats();
     exit_codes();

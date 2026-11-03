@@ -68,6 +68,12 @@ if(UNIX AND TARGET gt_analysis)
   add_test(NAME analysis_predict COMMAND analysis_predict_test)
   set_tests_properties(analysis_predict PROPERTIES TIMEOUT 60)
 
+  # Analysis: the needs-water state, its hysteresis, and when it says unknown.
+  add_executable(analysis_thirst_test analysis_thirst_test.c)
+  target_link_libraries(analysis_thirst_test PRIVATE gt_analysis)
+  add_test(NAME analysis_thirst COMMAND analysis_thirst_test)
+  set_tests_properties(analysis_thirst PROPERTIES TIMEOUT 60)
+
   # Analysis on a real store on disk, through the library and the real gt-analyze.
   if(TARGET gt-analyze AND TARGET gt_store)
     add_executable(analysis_store_test analysis_store_test.c)

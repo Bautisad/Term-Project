@@ -75,7 +75,8 @@ iface_opts iface_opts_default(void)
                     .ctl_fd = GT_CHILD_CTL_FD,
                     .deadline_ms = 5000,
                     .refresh_ms = 5000,
-                    .heartbeat_ms = GT_HEARTBEAT_INTERVAL_S * 1000u};
+                    .heartbeat_ms = GT_HEARTBEAT_INTERVAL_S * 1000u,
+                    .dry_raw = THIRST_DRY_DEFAULT};
     return o;
 }
 
@@ -216,6 +217,7 @@ static void refresh(iface* d, int64_t mono)
         return;
     }
     page_acc_init(&a);
+    page_acc_set_dry(&a, d->o->dry_raw);
     now_ms = (uint64_t)sensor_clock_ms(CLOCK_REALTIME);
     /* No upper bound, so a record dated ahead of now is seen and reported as a clock fault. */
     if (store_read_range(d->o->dir, now_ms > PAGE_WINDOW_MS ? now_ms - PAGE_WINDOW_MS : 0, UINT64_MAX,
