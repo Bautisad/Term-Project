@@ -499,6 +499,46 @@ static void test_progress_file(void)
     rm_tree(root);
 }
 
+/* --progress-sync: same file contents as without it, and it refuses to run without --progress.
+ * Whether the bytes reach stable storage can only be seen by pulling power (P2). */
+static void test_progress_sync(void)
+{
+    char     root[256];
+    char     store[300];
+    char     log[300];
+    char     prog[300];
+    char     bad[300];
+    char     text[8192];
+    char*    synced[] = {"--dir", store, "--rate", "0", "--count", "300", "--progress", prog,
+                         "--progress-sync", NULL};
+    char*    resumed[] = {"--dir", store, "--rate", "0", "--count", "100", "--progress", prog,
+                          "--progress-sync", NULL};
+    char*    no_progress[] = {"--dir", store, "--count", "1", "--progress-sync", NULL};
+    char*    unwritable[] = {"--dir", store, "--count", "1", "--progress", bad, "--progress-sync", NULL};
+
+    make_tmp(root, sizeof root);
+    path_of(store, sizeof store, root, "store");
+    path_of(log, sizeof log, root, "feeder.log");
+    path_of(prog, sizeof prog, root, "progress");
+    path_of(bad, sizeof bad, root, "missing-dir/progress");
+
+    CHECK(run(log, synced) == GT_EXIT_OK);
+    CHECK(read_progress(prog) == 300);
+    CHECK(verify_store(store) == 300);
+    CHECK(run(log, resumed) == GT_EXIT_OK); /* an existing progress file is reused */
+    CHECK(read_progress(prog) == 400);
+    CHECK(verify_store(store) == 400);
+
+    CHECK(run(log, no_progress) == GT_EXIT_CONFIG);
+    slurp(log, text, sizeof text);
+    CHECK(strstr(text, "needed by --progress-sync") != NULL);
+    CHECK(verify_store(store) == 400); /* the refused run wrote nothing */
+
+    CHECK(run(log, unwritable) == GT_EXIT_FATAL);
+    CHECK(verify_store(store) == 400);
+    rm_tree(root);
+}
+
 static void test_bad_arguments(void)
 {
     char  root[256];
@@ -543,6 +583,7 @@ int main(int argc, char** argv)
     test_live_reader();
     test_sigkill_then_restart();
     test_progress_file();
+    test_progress_sync();
     test_bad_arguments();
     (void)puts("PASS");
     return 0;

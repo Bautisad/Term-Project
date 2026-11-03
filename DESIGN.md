@@ -7,7 +7,8 @@ For the architecture the system is one supervisor plus three worker processes, a
 --**gt-sensor-soil** reads the STEMMA soil over I2C (which is adress 0x36 once a minute and sends one soil message to the hub.
 --**gt-sensor-light** counts the bright/dark transitions on the LM393 DO pin (which is gpio17) and sends a summary message to the hub once a minute. 
 - **gt-hub is the only writer, once a minnute it builds one 24-byte record from the latest soil and the light messages and then appends it with 'store_append'.
-- **analysis and interface** read the store through 'store_read_range'. Because of that they don't talk to the hub or sensors.
+- **analysis and interface** read the store through 'store_read_range'. Because of that they don't talk to the hub or sensors. Analysis is a library (`src/analysis`) with a command-line tool, `gt-analyze`; it is not a process of its own, and the LAN page does not call it yet (#43).
+- **gt-interface** serves the LAN page. It listens on TCP port 8080, answers only private IPv4 addresses, and accepts at most [8] connections at once, each with [5 s] to finish its request. It rebuilds its answer from the last 24 hours of the store at most every [5 s], and only when a request needs it. It sends heartbeats like the other children. It is the only process that accepts network connections, and it opens none.
 
 ## Data flow and rates
 | From | To | Channel | Message | Rate | Size |
@@ -17,6 +18,8 @@ For the architecture the system is one supervisor plus three worker processes, a
 | gt-hub | store (disk) | `store_append`, fsync after each record | record | 1 per minute | 24 B (about 35 KB per day) |
 | each child | gt-supervisor | socketpair inherited as fd 3 | GT_MSG_HEARTBEAT | every 10 s | 24 B |
 | gt-supervisor | children | fork/exec, SIGTERM, SIGKILL | none | only on start, stop or failure | none |
+| gt-interface | store (disk) | `store_read_range`, read only, the last 24 hours | records | at most once every [5 s], and only when a request needs it | up to about 35 KB (1,440 records of 24 B) |
+| a browser on the LAN | gt-interface | TCP port 8080, HTTP GET of `/`, `/index.html` or `/status.json`, private IPv4 peers only | request, then the page or the JSON | one request per page load | request up to 2 KB, response under 9 KB |
 
 ### Operating-System mechanisms used
 -** fork,exec,waitpid** (supervisor starts and reaps childrien)
@@ -40,7 +43,9 @@ so then the gap appears in the log. Since the store is append only, a crash lose
 | Multi-process isolation with a supervisor (mechanism E) | src/supervisor, src/ipc | tests/supervisor_test.sh: restart with backoff, no restart on a config exit, clean SIGTERM, no fd leak; `make memcheck` runs the supervisor under Valgrind | Supervisor restart, shutdown and heartbeat deadlines implemented; hub and sensor processes implemented (hub_process, soil_process, light_process); crash-loop DEGRADED implemented (child_logic, supervisor_behavior); the events.log file and orphan cleanup are next |
 | Custom storage layer (mechanism D) | src/store | store_test, store_failures and store_error_paths (fault injection on every libc call), the kill -9 loop, and the log checker | Implemented |
 | Watchdog through heartbeats | src/supervisor, src/ipc | tests/supervisor_test.sh with short limits (`--soft 1 --hard 3 --grace 1`): a silent child is warned, sent SIGTERM and restarted even though it exits 0; a child that ignores SIGTERM is sent SIGKILL; a healthy child is left alone; shutdown does not wait for a stubborn child | Implemented: the sensors and the hub send heartbeats; the supervisor warns at 30 s of silence, sends SIGTERM at 60 s and SIGKILL 5 s later. Not yet run on the Pi |
-| Custom drivers | src/sensors | Userspace drivers over kernel interfaces (i2c-dev, GPIO character device), not a kernel module. The loops run in tests with fake drivers (soil_logic, light_logic, soil_process, light_process); the real drivers are checked on the Pi with raw sensor reads and the GPIO17 level | Sensor processes and drivers written; drivers not yet checked on the Pi |
+| Custom drivers | src/sensors | Userspace drivers over kernel interfaces (i2c-dev, GPIO character device), not a kernel module. The loops run in tests with fake drivers (soil_logic, light_logic, soil_process, light_process); the real drivers are checked on the Pi with raw sensor reads and the GPIO17 level | Sensor processes and drivers written; drivers checked on the Pi on 2026-11-02 (see HARDWARE-CHECKS.md) |
+| Dry-down analysis and time-until-dry (#27) | src/analysis, tools/analyze.c | `analysis_dry` (cycle detection on seeded synthetic series: noise of +-16 counts, gaps, INVALID, STUCK and corrupt records, out-of-order times, short and badly fitting cycles, the bucket limit), `analysis_predict` (the median rate worked out by hand, every reason for withholding, the log line) and `analysis_store` (three weeks of synthetic history in 23 daily segments on disk, through the library and the real `gt-analyze`: cycles, prediction, a corrupt record, windows, an empty and a missing store, bad arguments) | Implemented and tested on synthetic data only. Not yet run on recorded data: the hub does not exist, so there is no real history. The dry threshold is an input and is not calibrated (S1 was descoped). Not run on the Pi |
+| LAN page daemon | src/interface | `interface_page` (states and rendering), `interface_http` (the strict request parser, response builder and private-address check, with a fuzz pass), `interface_daemon` (the real loop over loopback TCP: routes, connection limit and deadline, refresh interval, heartbeats, exit codes, no leaked descriptors), `interface_lifecycle` (the real binary with the real feeder: exit codes, heartbeat, the page following a store that appears, descriptors and sockets), and `nonet_src` and `nonet_behavior` (the no-outbound-network rule) | Implemented and run on the Pi on 2026-11-02 (see HARDWARE-CHECKS.md). It shows fake-feeder data until the hub exists, the supervisor does not start it yet, and needs-water and time-until-dry say "not enough data" until the analysis exists |
 
 
 ## Failure-Mode Table
@@ -52,7 +57,7 @@ Thresholds in [brackets] are our first guesses and will be set from measurements
  
 | # | Component | How it fails | How we detect it | What the system does | What the log shows (draft) | Verified by |
 |---|---|---|---|---|---|---|
-| 1 | Soil sensor | Wire loose or disconnected. The I2C read may fail outright (row 4) or return a value stuck at 0 or full scale (row 5). | Raw value outside [calibrated dry − margin, wet + margin], or noise far above normal | Soil field marked INVALID, never stored as a good reading. Analysis skips it. Light and hub keep running. Sampling continues, so it recovers when the wire is back. | `WARN soil status=0x01 raw=65535 seq=4812` (0x01 = INVALID) | S6 |
+| 1 | Soil sensor | Wire loose or disconnected. The I2C read may fail outright (row 4) or return a value stuck at 0 or full scale (row 5). | Raw value outside [calibrated dry − margin, wet + margin], or noise far above normal. In use: the draft bounds `[250,1100]`, kept on 2026-11-02 and not calibrated. Observed range: about 320 (probe in air) to 977 (wet soil). S1 was not run, so there is no measured dry/wet range. If real history nears an edge, widen the bounds, do not tighten them. | Soil field marked INVALID, never stored as a good reading. Analysis skips it. Light and hub keep running. Sampling continues, so it recovers when the wire is back. | `WARN soil status=0x01 raw=65535 seq=4812` (0x01 = INVALID) | S6 |
 | 2 | Soil sensor | Stuck reading | Identical raw value for [60] consecutive samples. Real soil plus sensor noise rarely does this, but very stable soil might (see note). | Flag STUCK, log once, keep storing the raw value, exclude it from analysis | `WARN soil status=0x02 raw=700 seq=4850` (0x02 = STUCK, logged when the status changes) | S6 |
 | 3 | Soil sensor | Noise spike | Sample differs from the median of the last [5] by more than [N]% of span | Median-of-N filter discards the spike and counts it | `INFO soil spike_rejected raw=29100 median=14620 seq=4901` | S2 |
 | 4 | Soil sensor (I2C) | I2C transfer to the soil sensor (0x36) fails | The syscall returns an error (errno is logged) | Retry [3] times, then mark this cycle INVALID. After [5] failed cycles in a row, exit nonzero so the supervisor restarts the process. | `ERROR soil read_failed errno=5 attempt=3/3 seq=4902`, then after the fifth failed cycle `ERROR soil giving_up failed_cycles=5` | NEW (unplug the soil sensor SDA/SCL, or disable I2C) |
@@ -71,8 +76,8 @@ Thresholds in [brackets] are our first guesses and will be set from measurements
 | 17 | SD card | Filesystem remounts read-only | Write returns EROFS or EIO | Same as row 16. A human has to fix it. | `ERROR store append_failed errno=30 seq=5201` | NEW |
 | 18 | Clock | Wrong time after reboot. We make no network calls, so there's no NTP, and the Pi's real-time clock needs a backup battery to keep time. | New timestamp earlier than the last stored one, or earlier than the build time | Flag the record TIME_UNSET. Rely on sequence numbers and the monotonic clock until the time is fixed. | `WARN clock backwards now=2026-01-01T00:00:03 last=2026-10-25T19:00:00 seq=5300` | NEW (set the clock back with `date`) |
 | 19 | Power | Brownout or under-voltage. Both sensors run from the 3.3 V rail, so a sag can shift the soil reading or flip the light flag. | Pi under-voltage flag (kernel message, or `vcgencmd get_throttled`). We need to confirm this works on the Pi 5. | Log it and flag samples taken during the event | `WARN power undervoltage seq=5400` | NEW |
-| 20 | Analysis | Wrong or unsupported prediction (no crash) | Too few dry-down cycles recorded, or recent data is INVALID or STUCK | Withhold the prediction and show "not enough data" | `INFO analysis prediction_withheld reason=insufficient_cycles have=2 need=3` | C3 |
-| 21 | LAN page | Process dies | Supervisor, as in row 8 | Restart. Logging is unaffected because processes are isolated. | As row 8 | P3 |
+| 20 | Analysis | Wrong or unsupported prediction (no crash) | Too few dry-down cycles recorded, or recent data is INVALID or STUCK | Withhold the prediction and show "not enough data" | `INFO analysis prediction_withheld reason=insufficient_cycles have=2 need=3` | C3. The withholding rules and this log line are tested in `analysis_predict`; the reasons are `no_recent_data`, `insufficient_cycles`, `not_drying` and `not_falling` |
+| 21 | LAN page | Process dies | Supervisor, as in row 8 | Restart. Logging is unaffected because processes are isolated. | As row 8 | P3. The real binary's exit codes, heartbeat and clean SIGTERM are in `interface_lifecycle`; the kill-and-restart run needs the supervisor to start it, which it does not yet |
  
 **Note on row 2:** a stuck-sensor check can false-alarm in very stable soil. We measure how often it does on clean data, and we adjust the threshold or report the false-alarm rate here.
  
@@ -142,6 +147,8 @@ What happens when power dies mid-write?
 - We claim the device predicts time-until-dry for **this plant in this pot**, within [X]% over [N] cycles. We do not claim it generalizes.
 - We treat light as a **bright/dark flag**. We claim only that it separates lit from unlit at the pot's setting, based on the baseline readings in Part 2. We do not claim it reports a light level or true lux, or that the switch point stays consistent over days.
 - Without a temperature reading, we report any light-vs-dry-down relationship as a trend that temperature may also explain.
+- The time-until-dry estimate assumes each dry-down is a straight line in the raw soil value. A real dry-down curves as the soil dries, so the estimate is least trustworthy near the dry end. The line's R^2 must be at least [0.8] or the cycle is thrown out, and the prediction needs at least [3] accepted finished cycles. The estimate is tested on synthetic series only so far. It is a statement about this plant and pot, once there is real history, and it counts down to a dry threshold that is not calibrated.
+- The LAN page says "not enough data" for needs-water and time-until-dry until the analysis (#27, #26, #43) exists, and shows OK only for a fresh, valid record with nothing flagged. Its limits are drafts: [3 min] without a record is stale, a record [60 s] ahead of the clock is a clock fault, [100 MB] free is low disk, and [24 h] is the history it reads.
 
 ## Evaluation Plan
 Our device uses two sensors, a capacitive soil moisture sensor (read over I2C) and a light sensor that reports bright or dark (an LM393 module with an LDR), to tell us when a houseplant needs water and why. Our design doc says the biggest risk is that drift or noise makes the readings look confident but wrong. So this plan mostly tests the sensors themselves: are they accurate, stable, and actually useful together? A short last section checks that the data survives crashes and power loss.
@@ -165,7 +172,7 @@ A note on the targets: most sensor targets below are our best guesses before we'
 | Super-dry soil | about 565 |
 | Wet soil | about 977 |
 
-The glass of water reads below dry soil. That was repeatable in two runs and was not investigated; the product reads soil, so S1 uses soil only. A single soil reading varies by about 16 counts (one standard deviation) in these sets. The invalid-reading bounds in the failure table (`[250,1100]`) are drafts built from these numbers and get refined after S1.
+The glass of water reads below dry soil. That was repeatable in two runs and was not investigated; the product reads soil, so S1 uses soil only. A single soil reading varies by about 16 counts (one standard deviation) in these sets. The invalid-reading bounds in the failure table (`[250,1100]`) are drafts built from these numbers. S1 was not run, so they were kept as they are (decision of 2026-11-02, failure table row 1).
 
 | ID | Test | Method | Target |
 |----|------|--------|--------|
@@ -229,6 +236,25 @@ The sensors only matter if the log we build from them stays trustworthy. These t
 | P3 | Restart after a child process is killed *(correctness)* | Kill the soil process, the light process, and the hub at random moments, 200 times each, and time the restart. | Median restart under 5 s and p99 under 10 s. The surviving sensor keeps logging and the gap shows up in the event log. |
 | P4 | 48-hour soak with real sensors *(correctness)* | Run the full system unattended on the Pi with both real sensors for 48 hours, recording each process's memory (RSS) and open file counts every hour. | 2,880 records with no unexplained sequence gaps, RSS growth under 1 MB per process, constant fd counts, and 0 unplanned supervisor restarts. |
 
+**Measured results (P1).** Captured with `tools/killloop.sh` on the Pi. The targets above are not edited: a miss is recorded here with the reason.
+
+| ID | Target | Measured | Result | Date | Notes |
+|----|--------|----------|--------|------|-------|
+| P1 | 500 kills, 0 CRC failures mid-log, at most 1 record lost per kill, "recovered" logged each time | 500 of 500 passed, 0 failed; `max_dropped=0`, `torn_restarts=0`; 1,000 records/s, kill 1-1000 ms after ready; store on SD card (ext4); seed 1793573235; commit `ac42b0b` | PASS | 2026-11-01 | Target met and not changed. No kill left a partial record, so the torn-tail truncation was not exercised here (likely one `write()` per record and `kill -9` does not split it; untested). Power loss is P2. |
+
+**Measured results (P2).** Captured on the Pi with `gt-feeder --progress-sync` and `gt-logcheck`, with the store and the progress file both on the SD card (ext4). The target in the table above is 10 pulls. Duke ran 2, on 2026-11-02, because of the time each pull takes and the risk to the SD card. The other conditions are unchanged, and the remaining 8 pulls were not run.
+
+| ID | Target | Measured | Result | Date | Notes |
+|----|--------|----------|--------|------|-------|
+| P2 | 10 pulls, 0 unrecoverable logs, at most 1 record lost per pull | 2 of 10 pulls run. Pull 1 at `--rate 0` (about 105 records/s): 2,896 records, `lost=0 corrupt=0`, the log ended at the last acknowledged seq (`acked=2896`). Pull 2 at `--rate 1`: 3,030 records, `lost=0 corrupt=0`, `acked=3030`. Both recoveries logged `dropped_bytes=0` and `recovered=1 max_dropped=0`. | PASS on the 2 run; 8 not run | 2026-11-02 | See the limits below. |
+
+Limits of this result:
+- Two pulls is a small sample. A card that loses data on only a fraction of pulls could pass two.
+- The witness (the fsynced progress file) is on the same SD card as the log. A card that reports fsync done too early could hide a loss in both.
+- `--rate 1` is the slowest the feeder offers, not the once-a-minute rate in the method, and at that pace a pull rarely lands mid-write.
+- No torn record was seen, so truncating a partial record after power loss was not exercised.
+- The writer log is not fsynced and its contents were lost in the pull, so each recovery was checked against a log of one start (`--restarts 0`).
+
 
 ## Ownership Map
 
@@ -248,9 +274,9 @@ The sensors only matter if the log we build from them stays trustworthy. These t
 | Path | Purpose |
 |---|---|
 | src/store | The custom storage layer. It keeps an append-only log of fixed-size binary records (about 24 bytes), each ending in a CRC32, in one segment file per day or week. It calls fsync after every append and after creating a segment. On startup it scans the newest segment, truncates after the last valid record, and logs how many bytes were dropped. It also serves reads by time range. |
-| src/analysis | Reads the history through store_read_range. It combines soil and light readings to judge whether the plant needs water and how soon, applies per-plant thresholds, and flags drift or noise in the sensors. All of it is written by us. |
-| src/interface | The LAN-only interface that shows results to the user. It makes no calls outside the local network. |
-| tools/ | Test helpers: a fake sensor feeder, a log checker (every CRC passes, sequence numbers are contiguous with at most one lost record, a recovery entry is logged), a CSV export script, and a kill loop that runs kill -9 on the writer at random moments. |
+| src/analysis | Reads the history through store_read_range. It combines soil and light readings to judge whether the plant needs water and how soon, applies per-plant thresholds, and flags drift or noise in the sensors. All of it is written by us. Built so far (#27): `dry.c` averages the good soil samples into [10 min] buckets, finds the dry-down cycles (a rise of [60] counts is watering) and fits a line to each; `predict.c` takes the median slope of the accepted cycles to estimate the hours until the soil reaches the dry threshold, or says why it will not; `analyze.c` joins them to the store. Light, the per-plant threshold and drift flagging are not built yet (#26, #43). |
+| src/interface | The LAN page. `page.c` decides the state and renders the HTML and JSON, `http.c` is the strict request parser, response builder and private-address check, `daemon.c` is the poll loop (sockets, heartbeat, store refresh) and `main.c` is the program. It makes no calls outside the local network, and `tools/nonetcheck.sh` and the lifecycle test check that. |
+| tools/ | Test helpers: a fake sensor feeder, a log checker (every CRC passes, sequence numbers are contiguous with at most one lost record, a recovery entry is logged), a CSV export script, `gt-analyze` (runs the dry-down analysis on a store and prints the cycles and the prediction), a kill loop that runs kill -9 on the writer at random moments, and a scan of the source and the built page daemon that enforces the no-outbound-network rule (nonetcheck.sh). |
 | Physical build | Duke builds Andrew's wiring on the Pi and runs the hardware tests. |
 
 ### Shared contracts (frozen first; changed only with both owners' agreement)

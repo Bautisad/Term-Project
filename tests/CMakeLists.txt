@@ -81,6 +81,86 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TARGET gt_hub)
   set_tests_properties(hub_process PROPERTIES TIMEOUT 60)
 endif()
 
+# Analysis: dry-down cycle detection on synthetic soil series.
+if(UNIX AND TARGET gt_analysis)
+  add_executable(analysis_dry_test analysis_dry_test.c)
+  target_link_libraries(analysis_dry_test PRIVATE gt_analysis)
+  add_test(NAME analysis_dry COMMAND analysis_dry_test)
+  set_tests_properties(analysis_dry PROPERTIES TIMEOUT 60)
+
+  # Analysis: time-until-dry from the cycles, and the reasons it holds back.
+  add_executable(analysis_predict_test analysis_predict_test.c)
+  target_link_libraries(analysis_predict_test PRIVATE gt_analysis)
+  add_test(NAME analysis_predict COMMAND analysis_predict_test)
+  set_tests_properties(analysis_predict PROPERTIES TIMEOUT 60)
+
+  # Analysis: the needs-water state, its hysteresis, and when it says unknown.
+  add_executable(analysis_thirst_test analysis_thirst_test.c)
+  target_link_libraries(analysis_thirst_test PRIVATE gt_analysis)
+  add_test(NAME analysis_thirst COMMAND analysis_thirst_test)
+  set_tests_properties(analysis_thirst PROPERTIES TIMEOUT 60)
+
+  # Analysis on a real store on disk, through the library and the real gt-analyze.
+  if(TARGET gt-analyze AND TARGET gt_store)
+    add_executable(analysis_store_test analysis_store_test.c)
+    target_link_libraries(analysis_store_test PRIVATE gt_analysis gt_store)
+    add_test(NAME analysis_store COMMAND analysis_store_test $<TARGET_FILE:gt-analyze>)
+    set_tests_properties(analysis_store PROPERTIES TIMEOUT 300)
+  endif()
+endif()
+
+# LAN page logic: states, reasons, history notes and both renderings, with no network.
+if(UNIX AND TARGET gt_interface)
+  add_executable(interface_page_test interface_page_test.c)
+  target_link_libraries(interface_page_test PRIVATE gt_interface)
+  add_test(NAME interface_page COMMAND interface_page_test)
+  set_tests_properties(interface_page PROPERTIES TIMEOUT 30)
+
+  # LAN page HTTP: the strict request parser (every refusal, every split position, a seeded
+  # fuzz pass), the response builder and the private-peer check.
+  add_executable(interface_http_test interface_http_test.c)
+  target_link_libraries(interface_http_test PRIVATE gt_interface)
+  add_test(NAME interface_http COMMAND interface_http_test)
+  set_tests_properties(interface_http PROPERTIES TIMEOUT 120)
+endif()
+
+# LAN page daemon: the real loop in a forked child against real loopback TCP and a stand-in
+# supervisor (routes, store states, refresh, connection limit and deadline, heartbeats, exit
+# codes, no leaked descriptors).  Linux only: prctl, /proc.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TARGET gt_interface)
+  add_executable(interface_daemon_test interface_daemon_test.c)
+  target_link_libraries(interface_daemon_test PRIVATE gt_interface)
+  add_test(NAME interface_daemon COMMAND interface_daemon_test)
+  set_tests_properties(interface_daemon PROPERTIES TIMEOUT 120)
+endif()
+
+# LAN page binary: the real gt-interface next to a real gt-feeder, started the way the supervisor
+# starts it (control socket on fd 3): exit codes, heartbeats, the page following a store that
+# appears, no stray descriptors, clean SIGTERM.  Linux only: prctl, /proc.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TARGET gt-interface AND TARGET gt-feeder)
+  add_executable(interface_lifecycle_test interface_lifecycle_test.c)
+  target_link_libraries(interface_lifecycle_test PRIVATE gt_interface)
+  add_test(NAME interface_lifecycle
+           COMMAND interface_lifecycle_test $<TARGET_FILE:gt-interface> $<TARGET_FILE:gt-feeder>)
+  set_tests_properties(interface_lifecycle PROPERTIES TIMEOUT 120)
+endif()
+
+# No outbound network (CLAUDE.md, a graded boundary): tools/nonetcheck.sh on the real src/ and
+# the built gt-interface, and the guard's own test, which plants each kind of violation in a
+# copy of src/ and checks that it is caught (and that comments and plain names are not).
+if(UNIX)
+  add_test(NAME nonet_behavior
+           COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/nonet_test.sh
+                   ${CMAKE_SOURCE_DIR}/tools/nonetcheck.sh ${CMAKE_SOURCE_DIR}/src)
+  set_tests_properties(nonet_behavior PROPERTIES TIMEOUT 120)
+endif()
+if(UNIX AND TARGET gt-interface)
+  add_test(NAME nonet_src
+           COMMAND sh ${CMAKE_SOURCE_DIR}/tools/nonetcheck.sh ${CMAKE_SOURCE_DIR}/src
+                   $<TARGET_FILE:gt-interface>)
+  set_tests_properties(nonet_src PROPERTIES TIMEOUT 60)
+endif()
+
 # Store write path: CRC32, record encoding, segments, append, lock, tail check.
 if(UNIX AND TARGET gt_store)
   add_executable(store_test store_test.c)

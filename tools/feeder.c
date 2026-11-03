@@ -53,14 +53,18 @@ static void feeder_log(const char* level, const char* fmt, ...)
 static void usage(FILE* out)
 {
     (void)fprintf(out,
-                  "usage: gt-feeder --dir DIR [--rate N] [--count N] [--progress FILE]\n"
+                  "usage: gt-feeder --dir DIR [--rate N] [--count N] [--progress FILE [--progress-sync]]\n"
                   "  --dir DIR    store directory (created if missing; resumes after the last record)\n"
                   "  --rate N     records per second, default %u, 0 = as fast as the disk allows\n"
                   "               (every record is fsynced, so the disk sets the ceiling)\n"
                   "  --count N    stop after N records, default 0 = run until SIGTERM or SIGINT\n"
                   "  --progress FILE  after each append, record its seq there (4 bytes, little-endian,\n"
-                  "               no fsync, so it survives kill -9): the log checker uses it to prove no\n"
-                  "               acknowledged record was lost\n"
+                  "               no fsync unless --progress-sync, so it survives kill -9 but not a power\n"
+                  "               cut): the log checker uses it to prove no acknowledged record was lost\n"
+                  "  --progress-sync  fsync the progress file (and its directory, once) after each\n"
+                  "               write, so it survives a power cut too (DESIGN test P2).  Needs\n"
+                  "               --progress.  It adds a second fsync per record, so the disk's\n"
+                  "               ceiling on --rate roughly halves.\n"
                   "At 1000 records/s the log grows by about 86 MB per hour.\n",
                   RATE_DEFAULT);
 }
@@ -93,8 +97,9 @@ static void make_record(uint32_t seq, uint64_t now_ms, gt_record* rec)
     rec->light_edges = (uint16_t)(seq % 7u);
 }
 
-/* Records the last acknowledged seq at offset 0 of the progress file. */
-static int write_progress(int fd, uint32_t seq)
+/* Records the last acknowledged seq at offset 0 of the progress file.  With sync, the write
+ * is on stable storage before this returns. */
+static int write_progress(int fd, uint32_t seq, bool sync)
 {
     uint8_t buf[4] = {(uint8_t)seq, (uint8_t)(seq >> 8), (uint8_t)(seq >> 16), (uint8_t)(seq >> 24)};
     ssize_t n;
@@ -106,6 +111,53 @@ static int write_progress(int fd, uint32_t seq)
         if (n >= 0) {
             errno = EIO;
         }
+        return -1;
+    }
+    if (sync) {
+        while (fsync(fd) != 0) {
+            if (errno != EINTR) {
+                return -1;
+            }
+        }
+    }
+    return 0;
+}
+
+/* fsync the directory that holds path, so a newly created progress file survives a power cut. */
+static int sync_parent_dir(const char* path)
+{
+    char        dir[512];
+    const char* slash = strrchr(path, '/');
+    size_t      len;
+    int         fd;
+    int         err = 0;
+
+    if (slash == NULL) {
+        (void)strcpy(dir, ".");
+    } else {
+        len = slash == path ? 1 : (size_t)(slash - path); /* "/x" is held by "/" */
+        if (len >= sizeof dir) {
+            errno = ENAMETOOLONG;
+            return -1;
+        }
+        (void)memcpy(dir, path, len);
+        dir[len] = '\0';
+    }
+    fd = open(dir, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (fd < 0) {
+        return -1;
+    }
+    while (fsync(fd) != 0) {
+        if (errno != EINTR) {
+            err = errno;
+            break;
+        }
+    }
+    if (close(fd) != 0 && err == 0) {
+        err = errno;
+    }
+    if (err != 0) {
+        errno = err;
         return -1;
     }
     return 0;
@@ -156,6 +208,7 @@ int main(int argc, char** argv)
     const char*       dir = NULL;
     const char*       progress = NULL;
     int               progress_fd = -1;
+    bool              progress_sync = false;
     uint64_t          rate = RATE_DEFAULT;
     uint64_t          count = 0;
     gt_store*         store = NULL;
@@ -179,6 +232,8 @@ int main(int argc, char** argv)
             dir = argv[++i];
         } else if (strcmp(argv[i], "--progress") == 0 && has_val) {
             progress = argv[++i];
+        } else if (strcmp(argv[i], "--progress-sync") == 0) {
+            progress_sync = true;
         } else if (strcmp(argv[i], "--rate") == 0 && has_val && parse_u64(argv[i + 1], RATE_MAX, &rate)) {
             i++;
         } else if (strcmp(argv[i], "--count") == 0 && has_val && parse_u64(argv[i + 1], UINT32_MAX, &count)) {
@@ -191,6 +246,11 @@ int main(int argc, char** argv)
     }
     if (dir == NULL) {
         feeder_log("ERROR", "missing_argument arg=--dir");
+        usage(stderr);
+        return GT_EXIT_CONFIG;
+    }
+    if (progress_sync && progress == NULL) {
+        feeder_log("ERROR", "missing_argument arg=--progress (needed by --progress-sync)");
         usage(stderr);
         return GT_EXIT_CONFIG;
     }
@@ -224,6 +284,11 @@ int main(int argc, char** argv)
             status = GT_EXIT_FATAL;
             goto out;
         }
+        if (progress_sync && sync_parent_dir(progress) != 0) {
+            feeder_log("ERROR", "progress dir sync failed path=%s errno=%d", progress, errno);
+            status = GT_EXIT_FATAL;
+            goto out;
+        }
     }
     deadline = t0;
     while (!g_stop && (count == 0 || done < count)) {
@@ -240,7 +305,7 @@ int main(int argc, char** argv)
             status = GT_EXIT_FATAL;
             break;
         }
-        if (progress_fd >= 0 && write_progress(progress_fd, seq) != 0) {
+        if (progress_fd >= 0 && write_progress(progress_fd, seq, progress_sync) != 0) {
             feeder_log("ERROR", "progress write failed seq=%u errno=%d", (unsigned)seq, errno);
             status = GT_EXIT_FATAL;
             break;
