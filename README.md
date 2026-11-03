@@ -2,7 +2,7 @@
 
 A small device that watches one houseplant's soil moisture and light, so the owner knows when to water instead of guessing. A Raspberry Pi 5 reads a capacitive soil moisture sensor and a bright/dark light module, keeps weeks of history in its own crash-safe log, and will show a "needs water" state on a page served only to the local network.
 
-**Status:** hardware bring-up, the build system, the supervisor, the IPC layer and the two sensor processes work in tests. The sensor drivers have been checked on the Pi (see [`HARDWARE-CHECKS.md`](HARDWARE-CHECKS.md)). The LAN page (`gt-interface`) runs on the Pi and loads on a phone, fed by a fake sensor feeder (see [View the page](#view-the-page)). The dry-down analysis (finding dry-downs and estimating the hours until the soil is dry) works in tests on synthetic data (see [Analyze the history](#analyze-the-history)). The hub and the rest of the analysis are still being written (see [Not built yet](#not-built-yet)), so there is nothing to run end to end with the real sensors yet. This README covers wiring the hardware, checking that it works, building and deploying what exists, and viewing the page. Run instructions for the whole device will be added when it runs.
+**Status:** hardware bring-up, the build system, the supervisor (restarts with backoff, heartbeat deadlines, crash-loop DEGRADED), the IPC layer, the two sensor processes and the hub (`gt-hub`, the only writer of the store) work in tests. The sensor drivers have been checked on the Pi (see [`HARDWARE-CHECKS.md`](HARDWARE-CHECKS.md)). The LAN page (`gt-interface`) runs on the Pi and loads on a phone, fed by a fake sensor feeder (see [View the page](#view-the-page)). The dry-down analysis (finding dry-downs and estimating the hours until the soil is dry) works in tests on synthetic data (see [Analyze the history](#analyze-the-history)). The hub has not yet run on the Pi with the real sensors, and the rest of the analysis is still being written (see [Not built yet](#not-built-yet)), so the whole device has not been run end to end yet. This README covers wiring the hardware, checking that it works, building and deploying what exists, and viewing the page. Run instructions for the whole device will be added when it runs.
 
 ## Ground rules
 
@@ -148,7 +148,8 @@ build/tools/gt-analyze --dir /var/lib/greenthumb/store
 
 These are the parts still to come. The issue numbers are on the repository's issue tracker.
 
-- The hub that collects the sensor readings and writes the store, and supervisor heartbeat deadlines
+- The whole device running on the Pi: the supervisor starting the hub and both sensors with the real sensors (`systemd/greenthumb.service` is written but not yet installed or tried on the Pi), then the 48-hour soak with a harness that measures the real processes (`tools/soakcheck.sh` still drives the feeder)
+- Supervisor: the `events.log` file, and killing orphaned children when it starts
 - Analysis: dry-down detection and time-until-dry (#27) is written and tested on synthetic data, and still has to be run on real recorded history; light-adjusted prediction (#26)
 - The "needs water" state on the LAN page (#43), and starting the page from the supervisor (`./gt-interface` is not in its default list yet)
 - Sensor calibration tests and crash-safety runs (#32, #29, #30, #31)
