@@ -26,7 +26,7 @@ asan:
 # (via GT_VALGRIND), not the shell; exit code 99 keeps findings apart from the supervisor's 0/1.
 memcheck: all
 	cd build && ctest -T memcheck -E supervisor_behavior --output-on-failure --no-tests=error \
-		--overwrite MemoryCheckCommandOptions="--leak-check=full --error-exitcode=1"
+		--overwrite MemoryCheckCommandOptions="--leak-check=full --error-exitcode=1 --suppressions=$(CURDIR)/tests/valgrind.supp"
 	cd build && GT_VALGRIND="valgrind --trace-children=yes --leak-check=full --error-exitcode=99" \
 		ctest -R supervisor_behavior --output-on-failure --no-tests=error
 

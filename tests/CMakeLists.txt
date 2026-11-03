@@ -6,14 +6,23 @@ if(TARGET gt-supervisor)
   add_test(NAME supervisor_version COMMAND gt-supervisor --version)
 endif()
 
-# Supervisor behaviour: restart/backoff, no restart on config exit, clean SIGTERM, no fd leak.
+# Supervisor behaviour: restart/backoff, no restart on config exit, clean SIGTERM, no fd leak,
+# heartbeat deadlines (the fake child sends heartbeats through ipc_send, so it links gt_ipc).
 if(UNIX AND TARGET gt-supervisor)
   add_executable(gt-fake-child fake_child.c)
-  target_link_libraries(gt-fake-child PRIVATE gt_flags)
+  target_link_libraries(gt-fake-child PRIVATE gt_flags gt_ipc)
   add_test(NAME supervisor_behavior
            COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/supervisor_test.sh
                    $<TARGET_FILE:gt-supervisor> $<TARGET_FILE:gt-fake-child>)
-  set_tests_properties(supervisor_behavior PROPERTIES TIMEOUT 60)
+  set_tests_properties(supervisor_behavior PROPERTIES TIMEOUT 120)
+endif()
+
+# Crash-loop rules (schedule_restart, child_watch): the window edge, recovery. No processes.
+if(UNIX AND TARGET gt_supervisor_core)
+  add_executable(child_test child_test.c)
+  target_link_libraries(child_test PRIVATE gt_supervisor_core)
+  add_test(NAME child_logic COMMAND child_test)
+  set_tests_properties(child_logic PROPERTIES TIMEOUT 30)
 endif()
 
 # IPC send/receive: round trips, malformed messages, EOF, listening socket.
@@ -40,6 +49,14 @@ if(UNIX AND TARGET gt_sensors)
   set_tests_properties(light_logic PROPERTIES TIMEOUT 30)
 endif()
 
+# Hub logic: record building, cycle timing and queueing. No sockets or store needed.
+if(UNIX AND TARGET gt_hub)
+  add_executable(hub_logic_test hub_logic_test.c)
+  target_link_libraries(hub_logic_test PRIVATE gt_hub)
+  add_test(NAME hub_logic COMMAND hub_logic_test)
+  set_tests_properties(hub_logic PROPERTIES TIMEOUT 30)
+endif()
+
 # Soil sensor process: the real loop with a fake sensor, against a stand-in hub and supervisor
 # (messages, heartbeats, retries, hub restart, exit codes). Linux only: prctl, unix sockets.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TARGET gt_sensors)
@@ -53,6 +70,15 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TARGET gt_sensors)
   target_link_libraries(light_proc_test PRIVATE gt_sensors)
   add_test(NAME light_process COMMAND light_proc_test)
   set_tests_properties(light_process PROPERTIES TIMEOUT 60)
+endif()
+
+# Hub process: the real loop against stand-in sensors and supervisor, with a real store
+# (records, resume, bad messages, fd count, idle record, disk-full style failure, exit codes).
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TARGET gt_hub)
+  add_executable(hub_proc_test hub_proc_test.c)
+  target_link_libraries(hub_proc_test PRIVATE gt_hub)
+  add_test(NAME hub_process COMMAND hub_proc_test)
+  set_tests_properties(hub_process PROPERTIES TIMEOUT 60)
 endif()
 
 # Store write path: CRC32, record encoding, segments, append, lock, tail check.

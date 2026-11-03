@@ -67,6 +67,7 @@ endfunction()
 # --- Libraries (one per area; shared contracts live in include/) -------------
 gt_library(gt_ipc      ipc)        # Andrew
 gt_library(gt_sensors  sensors)    # Andrew: drivers shared by both sensor procs
+gt_library(gt_hub      hub)        # Andrew: everything but hub/hub_main.c
 gt_library(gt_supervisor_core supervisor)  # Andrew: everything but supervisor/main.c
 gt_library(gt_store    store)      # Duke
 gt_library(gt_analysis analysis)   # Duke
@@ -76,10 +77,13 @@ endif()
 if(TARGET gt_sensors AND TARGET gt_ipc)
   target_link_libraries(gt_sensors PUBLIC gt_ipc)  # sensors send through ipc_io
 endif()
+if(TARGET gt_hub AND TARGET gt_sensors AND TARGET gt_store)
+  target_link_libraries(gt_hub PUBLIC gt_sensors gt_store)  # sensor_util helpers; store_append
+endif()
 
 # --- Daemons ------------------------------------------------------------------
 gt_daemon(gt-supervisor    supervisor/main.c     gt_supervisor_core gt_ipc)
-gt_daemon(gt-hub           hub/main.c            gt_ipc gt_store)
+gt_daemon(gt-hub           hub/hub_main.c        gt_hub)
 gt_daemon(gt-sensor-soil   sensors/soil_main.c   gt_sensors gt_ipc)
 gt_daemon(gt-sensor-light  sensors/light_main.c  gt_sensors gt_ipc)
 gt_daemon(gt-interface     interface/main.c      gt_analysis gt_store)

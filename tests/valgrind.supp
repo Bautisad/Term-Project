@@ -1,0 +1,15 @@
+# Valgrind suppressions for `make memcheck`.
+#
+# ctest -T memcheck wraps the command of every test, and for the shell-script tests (killloop,
+# soiltools, soakcheck) that command is `sh script`, so Valgrind checks the shell itself.  dash
+# leaks one 15-byte strdup at exit in all three; the stack never leaves dash.  Nothing of ours
+# is involved, and every other leak (ours or another program's) still fails the run.
+{
+   dash-strdup-at-exit
+   Memcheck:Leak
+   match-leak-kinds: definite
+   fun:malloc
+   fun:strdup
+   obj:*/dash
+   ...
+}
