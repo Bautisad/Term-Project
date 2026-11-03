@@ -2,7 +2,7 @@
 
 A small device that watches one houseplant's soil moisture and light, so the owner knows when to water instead of guessing. A Raspberry Pi 5 reads a capacitive soil moisture sensor and a bright/dark light module, keeps weeks of history in its own crash-safe log, and will show a "needs water" state on a page served only to the local network.
 
-**Status:** hardware bring-up, the build system, the supervisor, the IPC layer and the two sensor processes work in tests. The sensor drivers have been checked on the Pi (see [`HARDWARE-CHECKS.md`](HARDWARE-CHECKS.md)). The LAN page (`gt-interface`) runs on the Pi and loads on a phone, fed by a fake sensor feeder (see [View the page](#view-the-page)). The hub and analysis are still being written (see [Not built yet](#not-built-yet)), so there is nothing to run end to end with the real sensors yet. This README covers wiring the hardware, checking that it works, building and deploying what exists, and viewing the page. Run instructions for the whole device will be added when it runs.
+**Status:** hardware bring-up, the build system, the supervisor, the IPC layer and the two sensor processes work in tests. The sensor drivers have been checked on the Pi (see [`HARDWARE-CHECKS.md`](HARDWARE-CHECKS.md)). The LAN page (`gt-interface`) runs on the Pi and loads on a phone, fed by a fake sensor feeder (see [View the page](#view-the-page)). The dry-down analysis (finding dry-downs and estimating the hours until the soil is dry) works in tests on synthetic data (see [Analyze the history](#analyze-the-history)). The hub and the rest of the analysis are still being written (see [Not built yet](#not-built-yet)), so there is nothing to run end to end with the real sensors yet. This README covers wiring the hardware, checking that it works, building and deploying what exists, and viewing the page. Run instructions for the whole device will be added when it runs.
 
 ## Ground rules
 
@@ -120,6 +120,20 @@ Then open `http://greenthumb.local:8080/` on a phone or laptop on the same netwo
 - **When it says degraded:** it lists the reasons, for example no new reading for 3 minutes, a store it cannot read, invalid readings, an under-voltage event, a clock that is ahead, or low disk space. It never shows OK for a state it cannot judge.
 - **Not started by the supervisor yet:** run it by hand as above. Other flags (`--heartbeat-ms`, `--refresh-ms`) are for the tests.
 
+## Analyze the history
+
+`gt-analyze` reads a store, finds the dry-down cycles and says how long until the soil is dry. It only reads, so it is safe while a writer is running.
+
+```
+build/tools/gt-analyze --dir /var/lib/greenthumb/store
+```
+
+- **What it prints:** the records it read and how many it skipped (INVALID, STUCK, time-unset and corrupt ones are never used), each cycle with its slope and fit, the newest soil value, and either `prediction hours=...` with a range, or `prediction_withheld reason=...` and why.
+- **When it holds back:** `insufficient_cycles` (fewer than 3 accepted finished dry-downs), `no_recent_data` (the newest good sample is more than 30 minutes old), `not_drying` (the soil was just watered) or `not_falling`.
+- **The dry threshold is a guess:** `--dry N` sets the raw soil value that counts as dry. The default, 565, is the "very dry soil" reading from our build. It is not calibrated, because the calibration test (S1) was not run, and the output says so.
+- **Other options:** `--days N` is how much history to read (default 28) and `--now MS` sets the clock, for replaying old data.
+- **Not yet tried on real data:** there is no hub, so no real history exists. It has only been run on synthetic data and on the fake feeder's data, where it correctly says there is not enough to predict.
+
 ## Troubleshooting
 
 - **`36` is missing from `i2cdetect -y 1`:** check that I2C is enabled in `raspi-config` and that SDA (pin 3) and SCL (pin 5) are wired the right way round. Also check 3.3 V and GND on the soil sensor.
@@ -135,7 +149,7 @@ Then open `http://greenthumb.local:8080/` on a phone or laptop on the same netwo
 These are the parts still to come. The issue numbers are on the repository's issue tracker.
 
 - The hub that collects the sensor readings and writes the store, and supervisor heartbeat deadlines
-- Analysis: dry-down detection and time-until-dry (#27), light-adjusted prediction (#26)
+- Analysis: dry-down detection and time-until-dry (#27) is written and tested on synthetic data, and still has to be run on real recorded history; light-adjusted prediction (#26)
 - The "needs water" state on the LAN page (#43), and starting the page from the supervisor (`./gt-interface` is not in its default list yet)
 - Sensor calibration tests and crash-safety runs (#32, #29, #30, #31)
 
