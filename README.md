@@ -2,7 +2,7 @@
 
 A small device that watches one houseplant's soil moisture and light, so the owner knows when to water instead of guessing. A Raspberry Pi 5 reads a capacitive soil moisture sensor and a bright/dark light module, keeps weeks of history in its own crash-safe log, and will show a "needs water" state on a page served only to the local network.
 
-**Status:** hardware bring-up, the build system, the supervisor, the IPC layer and the two sensor processes work in tests. The sensor drivers have been checked on the Pi (see [`HARDWARE-CHECKS.md`](HARDWARE-CHECKS.md)). The LAN page (`gt-interface`) runs on the Pi and loads on a phone, fed by a fake sensor feeder (see [View the page](#view-the-page)). The dry-down analysis (finding dry-downs and estimating the hours until the soil is dry) works in tests on synthetic data (see [Analyze the history](#analyze-the-history)). The hub and the rest of the analysis are still being written (see [Not built yet](#not-built-yet)), so there is nothing to run end to end with the real sensors yet. This README covers wiring the hardware, checking that it works, building and deploying what exists, and viewing the page. Run instructions for the whole device will be added when it runs.
+**Status:** hardware bring-up, the build system, the supervisor (restarts with backoff, heartbeat deadlines, crash-loop DEGRADED), the IPC layer, the two sensor processes and the hub (`gt-hub`, the only writer of the store) work in tests. The sensor drivers have been checked on the Pi (see [`HARDWARE-CHECKS.md`](HARDWARE-CHECKS.md)). The LAN page (`gt-interface`) runs on the Pi and loads on a phone, fed by a fake sensor feeder (see [View the page](#view-the-page)). The dry-down analysis (finding dry-downs and estimating the hours until the soil is dry) works in tests on synthetic data (see [Analyze the history](#analyze-the-history)). The hub has not yet run on the Pi with the real sensors, and the rest of the analysis is still being written (see [Not built yet](#not-built-yet)), so the whole device has not been run end to end yet. This README covers wiring the hardware, checking that it works, building and deploying what exists, and viewing the page. Run instructions for the whole device will be added when it runs.
 
 ## Ground rules
 
@@ -100,7 +100,25 @@ sudo apt install build-essential cmake rsync valgrind gcc-aarch64-linux-gnu
 
 A change counts as done only when `make`, `make test` and `make asan` all pass.
 
-Today this builds `gt-supervisor`, `gt-sensor-soil`, `gt-sensor-light`, `gt-interface` and the test helpers. The other programs are built automatically once their source files exist.
+Today this builds `gt-supervisor`, `gt-hub`, `gt-sensor-soil`, `gt-sensor-light`, `gt-interface` and the test helpers. The other programs are built automatically once their source files exist.
+
+## Run on the Pi
+
+**Not tried yet.** These steps come from the code and the systemd unit; nothing here has run on the Pi. Replace the "expect" lines with real output once someone has run it.
+
+1. Deploy from your Linux machine: `make deploy PI=dbautista@greenthumb.local`. The binaries land in `~/greenthumb/bin`.
+2. On the Pi, check the hardware first ([Check the hardware](#check-the-hardware)), then check the groups the unit needs: `getent group i2c gpio` must print both lines, or systemd refuses to start it.
+3. Copy `systemd/greenthumb.service` to the Pi and install it. It names the user `dbautista` and `/home/dbautista/greenthumb/bin`; edit those if you deployed elsewhere.
+   ```
+   sudo cp greenthumb.service /etc/systemd/system/
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now greenthumb
+   ```
+4. Check it. Expect `systemctl status greenthumb` to say `active (running)`, `journalctl -u greenthumb` to show `start child=` for `gt-hub`, `gt-sensor-soil`, `gt-sensor-light` and `gt-interface` and then `state=running` for each, `/run/greenthumb/hub.sock` to exist, `curl -s localhost:8080/status.json` to answer, and `/var/lib/greenthumb/store` to hold a segment file that grows by one record a minute.
+5. Break something. `sudo pkill -9 gt-hub`: expect `died signal=9` then `restart=1 delay=1s` in the journal, and a gap in the sequence numbers where the hub was down. Unplug the soil sensor: expect INVALID soil readings, and `giving_up` after five failed cycles.
+6. Stop it: `sudo systemctl stop greenthumb`. Expect `stopped` in the journal and exit status 0.
+
+The 48-hour soak is not wired up yet: `tools/soakcheck.sh` still drives the feeder, not these processes.
 
 ## View the page
 
@@ -118,7 +136,7 @@ Then open `http://greenthumb.local:8080/` on a phone or laptop on the same netwo
 - **The store:** `--dir PATH` says where to read it (read only). The default, `/var/lib/greenthumb/store`, is where the hub is meant to write.
 - **What it shows:** the newest valid soil value and light state, how old they are, and a count of the last 24 hours of readings. "Needs water" and "time until dry" say "not enough data" until the analysis exists.
 - **When it says degraded:** it lists the reasons, for example no new reading for 3 minutes, a store it cannot read, invalid readings, an under-voltage event, a clock that is ahead, or low disk space. It never shows OK for a state it cannot judge.
-- **Not started by the supervisor yet:** run it by hand as above. Other flags (`--heartbeat-ms`, `--refresh-ms`) are for the tests.
+- **Started by the supervisor:** `gt-supervisor` starts `./gt-interface` with the hub and the sensors (with no `--dir` it reads `/var/lib/greenthumb/store`, where the hub writes); to run it by hand as above, use `--dir`. Other flags (`--heartbeat-ms`, `--refresh-ms`) are for the tests.
 
 ## Analyze the history
 
@@ -148,9 +166,10 @@ build/tools/gt-analyze --dir /var/lib/greenthumb/store
 
 These are the parts still to come. The issue numbers are on the repository's issue tracker.
 
-- The hub that collects the sensor readings and writes the store, and supervisor heartbeat deadlines
+- The whole device running on the Pi: the supervisor starting the hub and both sensors with the real sensors (`systemd/greenthumb.service` is written but not yet installed or tried on the Pi), then the 48-hour soak with a harness that measures the real processes (`tools/soakcheck.sh` still drives the feeder)
+- Supervisor: the `events.log` file, and killing orphaned children when it starts
 - Analysis: dry-down detection and time-until-dry (#27) is written and tested on synthetic data, and still has to be run on real recorded history; light-adjusted prediction (#26)
-- The "needs water" state on the LAN page (#43), and starting the page from the supervisor (`./gt-interface` is not in its default list yet)
+- The "needs water" state on the LAN page (#43)
 - Sensor calibration tests and crash-safety runs (#32, #29, #30, #31)
 
 ## More reading

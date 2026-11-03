@@ -42,11 +42,12 @@ alive() {
     [ -n "$st" ] && [ "$st" != Z ]
 }
 
-# start_sup MODE: run the supervisor with one fake child behaving as MODE.
+# start_sup MODE [FLAGS]: run the supervisor, with FLAGS (split into words) for its options,
+# and one fake child behaving as MODE.
 # GT_VALGRIND (set by `make memcheck`) is a command prefix, so valgrind checks the
 # supervisor and the child it execs instead of this shell.
 start_sup() {
-    GT_FAKE=$1 $GT_VALGRIND "$SUP" "$FAKE" 2>"$LOG" &
+    GT_FAKE=$1 $GT_VALGRIND "$SUP" $2 "$FAKE" 2>"$LOG" &
     SUPPID=$!
 }
 
@@ -94,5 +95,42 @@ echo "the child gets only fd 3; nothing else leaks across exec"
 start_sup fdcheck
 wait_exit 5
 [ "$(count 'exited code=0')" -eq 1 ] || fail "fdcheck child did not exit 0"
+
+HB="--soft 1 --hard 3 --grace 1" # heartbeat limits short enough for a test
+
+echo "a silent child is warned, terminated, and restarted although it exits 0 on SIGTERM"
+start_sup run "$HB"
+wait_count "heartbeat_missed" 1 5
+wait_count "heartbeat_timeout" 1 5
+wait_count "start child=" 2 5
+stop_sup
+
+echo "a child that ignores SIGTERM is killed after the grace period, then restarted"
+start_sup stubborn "$HB"
+wait_count "killed signal=SIGKILL" 1 8
+wait_count "start child=" 2 5
+stop_sup
+
+echo "a child that keeps sending heartbeats is left alone, and its state is logged"
+start_sup beat "$HB"
+wait_count "state=running" 1 5
+sleep 5 # longer than the hard limit
+[ "$(count 'heartbeat_')" -eq 0 ] || fail "a healthy child was reported silent"
+[ "$(count 'restart=')" -eq 0 ] || fail "a healthy child was restarted"
+stop_sup
+
+echo "shutdown does not wait for a child that ignores SIGTERM"
+start_sup stubborn "--soft 10 --hard 20 --grace 1" # long deadlines: only shutdown can send it
+wait_count "gt-fake-child: ready" 1 15
+stop_sup
+[ "$(count 'killed signal=SIGKILL')" -eq 1 ] || fail "no SIGKILL at shutdown"
+
+echo "a crash loop is logged once as DEGRADED, and the restart delay is held at the cap"
+start_sup crash "--max 2 --window 60"
+wait_count "restart=3 delay=60s" 1 10
+[ "$(count 'crash_loop.*state=DEGRADED')" -eq 1 ] || fail "crash_loop not logged exactly once"
+sleep 3 # the held-back child must not start again
+[ "$(count 'start child=')" -eq 3 ] || fail "child started during the held-back delay"
+stop_sup
 
 echo "PASS"

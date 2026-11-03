@@ -88,8 +88,8 @@ fresh; plant ipc/ipc_io.c 'void leak(void) { execv("/bin/sh", 0); }'
 violation "exec outside the supervisor" R1
 fresh; printf 'void leak(void) { connect(1, 0, 0); }\n' > "$T/ipc/other.c"
 violation "connect() in an ipc file other than ipc_io.c" R1
-fresh; mkdir "$T/hub" && printf 'void leak(void) { gethostbyname("x"); }\n' > "$T/hub/main.c"
-violation "a new directory (the future hub) is scanned too" R1
+fresh; mkdir "$T/future" && printf 'void leak(void) { gethostbyname("x"); }\n' > "$T/future/main.c"
+violation "a directory nobody has written yet is scanned too" R1
 
 # --- sockets (R2, R3) --------------------------------------------------------------------
 fresh; plant interface/http.c 'int leak(void) { return socket(AF_INET, SOCK_DGRAM, 0); }'

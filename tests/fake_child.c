@@ -1,18 +1,23 @@
 /* gt-fake-child: stand-in daemon for the supervisor tests.  Behaviour comes from GT_FAKE:
- *   run       wait for SIGTERM, then exit 0
+ *   run       wait for SIGTERM, then exit 0; sends no heartbeats (a silent child)
+ *   beat      like run, but sends a RUNNING heartbeat every 100 ms
+ *   stubborn  like run, but ignores SIGTERM (only SIGKILL stops it)
  *   exit:N    exit with code N immediately
  *   crash     kill itself with SIGKILL
  *   fdcheck   exit 0 if fd 3 is the control socket and no fd above 3 is open,
  *             7 if an extra fd leaked in, 8 if fd 3 is missing */
 #include <fcntl.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "ipc.h"
+#include "ipc_io.h"
 
 static void on_term(int sig)
 {
@@ -23,24 +28,37 @@ static void on_term(int sig)
 int main(void)
 {
     const char* mode = getenv("GT_FAKE");
+    bool        beat;
+    bool        stubborn;
 
     if (mode == NULL) {
         (void)fprintf(stderr, "gt-fake-child: GT_FAKE not set\n");
         return GT_EXIT_CONFIG;
     }
-    if (strcmp(mode, "run") == 0) {
+    beat = strcmp(mode, "beat") == 0;
+    stubborn = strcmp(mode, "stubborn") == 0;
+    if (strcmp(mode, "run") == 0 || beat || stubborn) {
         struct sigaction sa;
+        struct timespec  tick = {0, 100000000L};
+        gt_msg_heartbeat hb = {.pid = getpid(), .state = GT_CHILD_RUNNING};
 
         memset(&sa, 0, sizeof sa);
-        sa.sa_handler = on_term;
+        sa.sa_handler = stubborn ? SIG_IGN : on_term;
         if (sigaction(SIGTERM, &sa, NULL) != 0) {
             return GT_EXIT_FATAL;
         }
-        /* The handler is installed: a SIGTERM from here on exits 0.  Tests wait for this
-         * line, because the supervisor logs "start" as soon as it forks. */
+        /* The handler is installed: a SIGTERM from here on exits 0 (or is ignored).  Tests wait
+         * for this line, because the supervisor logs "start" as soon as it forks. */
         (void)fputs("gt-fake-child: ready\n", stderr);
-        for (;;) {
-            pause();
+        for (uint32_t seq = 0;; seq++) {
+            if (!beat) {
+                pause();
+            } else if (ipc_send(GT_CHILD_CTL_FD, GT_MSG_HEARTBEAT, GT_SENSOR_NONE, seq, &hb,
+                                sizeof hb) != 0) {
+                return GT_EXIT_IPC;
+            } else {
+                (void)nanosleep(&tick, NULL);
+            }
         }
     }
     if (strncmp(mode, "exit:", 5) == 0) {
