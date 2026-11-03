@@ -1,10 +1,12 @@
 /* gt-interface: serves the LAN page (HTML and JSON) from the store.
  *
- * usage: gt-interface [--dir PATH] [--port N] [--bind IPV4] [--heartbeat-ms N] [--refresh-ms N]
+ * usage: gt-interface [--dir PATH] [--port N] [--bind IPV4] [--dry N] [--heartbeat-ms N]
+ *                      [--refresh-ms N]
  * Started by the supervisor with no arguments: it listens on 0.0.0.0:8080 and reads the store
- * in IFACE_DIR_DEFAULT.  The flags are for running it by hand and for the tests.  Exit codes
- * are iface_run's, plus GT_EXIT_CONFIG for bad arguments (or an address that is not IPv4) and
- * GT_EXIT_FATAL when the port cannot be listened on. */
+ * in IFACE_DIR_DEFAULT.  The flags are for running it by hand and for the tests.  --dry N is the
+ * soil value at or below which the plant needs water (0..65535, default 565: a draft, not
+ * calibrated).  Exit codes are iface_run's, plus GT_EXIT_CONFIG for bad arguments (or an
+ * address that is not IPv4) and GT_EXIT_FATAL when the port cannot be listened on. */
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
@@ -38,6 +40,9 @@ static int parse_args(int argc, char** argv, iface_opts* o, const char** addr, u
         else if (strcmp(flag, "--port") == 0 && sensor_parse_uint(val, 65535, &n)) {
             *port = (unsigned)n;
         }
+        else if (strcmp(flag, "--dry") == 0 && sensor_parse_uint(val, 65535, &n)) {
+            o->dry_raw = (uint16_t)n;
+        }
         else if (strcmp(flag, "--heartbeat-ms") == 0 && sensor_parse_uint(val, HEARTBEAT_MS_MAX, &n) && n >= 1) {
             o->heartbeat_ms = (unsigned)n;
         }
@@ -61,8 +66,8 @@ int main(int argc, char** argv)
 
     slog_init("interface");
     if (parse_args(argc, argv, &o, &addr, &port) != 0) {
-        (void)fprintf(stderr, "usage: %s [--dir PATH] [--port N] [--bind IPV4] [--heartbeat-ms N] "
-            "[--refresh-ms N]\n", argv[0]);
+        (void)fprintf(stderr, "usage: %s [--dir PATH] [--port N] [--bind IPV4] [--dry N] "
+            "[--heartbeat-ms N] [--refresh-ms N]\n", argv[0]);
         return GT_EXIT_CONFIG;
     }
     o.ctl_fd = sensor_ctl_fd(o.ctl_fd);

@@ -81,6 +81,9 @@ if(TARGET gt_interface AND TARGET gt_store AND TARGET gt_sensors AND TARGET gt_i
   # daemon.c reads the store and reuses the sensors' supervisor plumbing (heartbeat, signals, log)
   target_link_libraries(gt_interface PUBLIC gt_store gt_sensors gt_ipc)
 endif()
+if(TARGET gt_interface AND TARGET gt_analysis)
+  target_link_libraries(gt_interface PUBLIC gt_analysis)  # page.c asks thirst.h for needs-water
+endif()
 
 # --- Daemons ------------------------------------------------------------------
 gt_daemon(gt-supervisor    supervisor/main.c     gt_supervisor_core gt_ipc)

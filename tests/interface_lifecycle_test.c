@@ -536,6 +536,10 @@ static void bad_arguments(const char* tmp)
         {"--heartbeat-ms", "30001", NULL},
         {"--refresh-ms", "0", NULL},
         {"--refresh-ms", "3600001", NULL},
+        {"--dry", NULL},
+        {"--dry", "x", NULL},
+        {"--dry", "-1", NULL},
+        {"--dry", "65536", NULL},
     };
     char log[300];
 
@@ -744,6 +748,69 @@ static void full_run(const char* tmp)
     CHECK(wait_exit(feeder, WAIT_MS) == GT_EXIT_OK);
 }
 
+/* The real binary with --dry: the feeder's soil values are 300..999, all valid, so a line of 0 is
+ * never reached ("no") and a line of 65535 always is ("yes"). */
+static void dry_flag(const char* tmp)
+{
+    static const struct {
+        const char* dry;
+        const char* want;
+    } CASES[] = {{"0", "\"needs_water\":\"no\",\"dry_raw\":0,"},
+                 {"65535", "\"needs_water\":\"yes\",\"dry_raw\":65535,"}};
+    char        flog[300];
+    char        store[300];
+    const char* fargs[8];
+    char        rate[8] = "5";
+    pid_t       feeder;
+
+    join(flog, sizeof flog, tmp, "dry-feeder.log");
+    join(store, sizeof store, tmp, "dry-store");
+    fargs[0] = "--dir";
+    fargs[1] = store;
+    fargs[2] = "--rate";
+    fargs[3] = rate;
+    fargs[4] = NULL;
+    feeder = spawn(g_feeder, fargs, flog, -1, -1);
+
+    for (size_t i = 0; i < sizeof CASES / sizeof CASES[0]; i++) {
+        char        log[300];
+        int         sv[2];
+        const char* args[12];
+        unsigned    port;
+        pid_t       pid;
+
+        CHECK(snprintf(log, sizeof log, "%s/dry-%zu.log", tmp, i) < (int)sizeof log);
+        CHECK(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, sv) == 0);
+        args[0] = "--dir";
+        args[1] = store;
+        args[2] = "--bind";
+        args[3] = "127.0.0.1";
+        args[4] = "--port";
+        args[5] = "0";
+        args[6] = "--refresh-ms";
+        args[7] = "200";
+        args[8] = "--dry";
+        args[9] = CASES[i].dry;
+        args[10] = NULL;
+        pid = spawn(g_iface, args, log, sv[1], sv[0]);
+        CHECK(close(sv[1]) == 0);
+        port = wait_listening(log);
+        (void)wait_records(port, 3);
+        if (strstr(body(), CASES[i].want) == NULL) {
+            (void)fprintf(stderr, "--dry %s: wanted %s in %s\n", CASES[i].dry, CASES[i].want, body());
+            CHECK(!"--dry changes the page");
+        }
+        get(port, "GET / HTTP/1.1\r\n\r\n");
+        CHECK(status_of() == 200);
+        CHECK(strstr(body(), i == 0 ? "No. Soil reading" : "Yes, water this plant") != NULL);
+        CHECK(kill(pid, SIGTERM) == 0);
+        CHECK(wait_exit(pid, WAIT_MS) == GT_EXIT_OK);
+        CHECK(close(sv[0]) == 0);
+    }
+    CHECK(kill(feeder, SIGTERM) == 0);
+    CHECK(wait_exit(feeder, WAIT_MS) == GT_EXIT_OK);
+}
+
 int main(int argc, char** argv)
 {
     char tmp[256];
@@ -765,6 +832,7 @@ int main(int argc, char** argv)
     port_in_use(tmp);
     supervisor_lost(tmp);
     full_run(tmp);
+    dry_flag(tmp);
 
     remove_tree(tmp);
     (void)puts("PASS");

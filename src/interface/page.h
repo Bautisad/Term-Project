@@ -4,8 +4,10 @@
  * page_render_html / page_render_json produce.
  *
  * Rule from #43: an unknown state is never shown as OK.  PAGE_OK needs a fresh, valid
- * record with no flag set.  Prediction and needs-water are always "unknown" until analysis
- * (#27, #26, #43) exists. */
+ * record with no flag set.  Needs-water comes from thirst.h (a hysteresis around the dry
+ * threshold); "no" is only shown while the page itself is PAGE_OK, otherwise it is "unknown".
+ * "Yes" is shown whenever thirst.h says so.  The dry threshold is a draft, not calibrated.
+ * Time-until-dry is always "not enough data" for now (it needs a long history read). */
 #ifndef GT_PAGE_H
 #define GT_PAGE_H
 
@@ -15,6 +17,7 @@
 
 #include "record.h"
 #include "store.h"
+#include "thirst.h"
 
 /* Drafts, like the bracketed thresholds in DESIGN.md. */
 #define PAGE_WINDOW_MS      (24ull * 3600ull * 1000ull) /* how much history the page reads */
@@ -45,9 +48,15 @@ typedef struct page_acc {
     bool      light_bright;
     uint16_t  light_bright_ms;
     uint64_t  light_ts_ms;
+    thirst_acc thirst;       /* needs-water: fed every readable record, oldest first */
 } page_acc;
 
+/* Starts empty, with the draft dry threshold THIRST_DRY_DEFAULT. */
 void page_acc_init(page_acc* a);
+
+/* Sets the dry threshold.  Call it right after page_acc_init, before any record is visited
+ * (it clears what the needs-water state has seen). */
+void page_acc_set_dry(page_acc* a, uint16_t dry_raw);
 
 /* A gt_store_visit_fn: ctx is a page_acc*.  Always returns 0 (keep reading). */
 int page_acc_visit(const gt_record* rec, gt_store_rec_status status, void* ctx);
@@ -92,6 +101,9 @@ typedef struct page_view {
     bool       light_bright;
     uint16_t   light_bright_ms;
     uint64_t   light_age_ms;
+    thirst_state water;       /* needs water: THIRST_UNKNOWN unless known (and "ok" needs PAGE_OK) */
+    uint16_t   water_level_raw; /* the soil value the state rests on (0 if there is none) */
+    uint16_t   water_dry_raw;   /* the dry threshold in use */
     bool       disk_known;
     uint64_t   disk_free_bytes;
     /* History notes: facts about the window that do not change the state. */

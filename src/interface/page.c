@@ -28,9 +28,24 @@ static const reason REASONS[] = {
 };
 #define N_REASONS (sizeof REASONS / sizeof REASONS[0])
 
+/* The needs-water state judges freshness and a future-dated record by the page's own limits. */
+_Static_assert(PAGE_STALE_MS > 0, "thirst_acc_init refuses a zero freshness limit");
+
+void page_acc_set_dry(page_acc* a, uint16_t dry_raw)
+{
+    thirst_params p;
+
+    thirst_params_default(&p, dry_raw);
+    p.fresh_ms = PAGE_STALE_MS;
+    p.ahead_ms = PAGE_FUTURE_MS;
+    /* Cannot fail: the only refusal is fresh_ms == 0 (asserted above). */
+    (void)thirst_acc_init(&a->thirst, &p);
+}
+
 void page_acc_init(page_acc* a)
 {
     (void)memset(a, 0, sizeof *a);
+    page_acc_set_dry(a, THIRST_DRY_DEFAULT);
 }
 
 int page_acc_visit(const gt_record* rec, gt_store_rec_status status, void* ctx)
@@ -50,6 +65,7 @@ int page_acc_visit(const gt_record* rec, gt_store_rec_status status, void* ctx)
     a->prev_seq = rec->seq;
     a->last = *rec;
     a->have_last = true;
+    thirst_acc_feed(&a->thirst, rec);
 
     if ((rec->flags & GT_REC_SOIL_INVALID) != 0) {
         a->soil_invalid++;
@@ -158,6 +174,20 @@ void page_judge(const page_input* in, page_view* v)
     } else {
         v->state = PAGE_OK;
     }
+
+    /* Needs water.  "Yes" is an alert, so it may show on a degraded page.  "No" is a claim that
+     * all is well, so it needs the page to be OK too; otherwise it is unknown, never OK. */
+    {
+        thirst_result t;
+
+        thirst_judge(&a->thirst, in->now_ms, &t);
+        v->water = t.state;
+        v->water_level_raw = t.level_raw;
+        v->water_dry_raw = t.dry_raw;
+        if (v->water == THIRST_OK && v->state != PAGE_OK) {
+            v->water = THIRST_UNKNOWN;
+        }
+    }
 }
 
 const char* page_state_name(page_state s)
@@ -225,6 +255,20 @@ static void put_age(out* o, uint64_t ms)
     }
 }
 
+/* The JSON word for needs-water. */
+static const char* water_word(thirst_state s)
+{
+    switch (s) {
+    case THIRST_NEEDS_WATER:
+        return "yes";
+    case THIRST_OK:
+        return "no";
+    case THIRST_UNKNOWN:
+        break;
+    }
+    return "unknown";
+}
+
 static const char* state_title(page_state s)
 {
     switch (s) {
@@ -251,6 +295,7 @@ int page_render_html(char* buf, size_t cap, const page_view* v)
             "<style>body{font-family:sans-serif;max-width:32rem;margin:1rem auto;padding:0 1rem}"
             ".state{padding:.5rem .75rem;border-radius:.4rem;font-weight:bold}"
             ".ok{background:#d8f0d8}.degraded{background:#f6d6d6}.no_data{background:#e6e6e6}"
+            ".needs{background:#f6e0a8;color:#5a3a00}"
             "</style></head><body>\n<h1>Green Thumb</h1>\n");
     put(&o, "<p class=\"state %s\">%s</p>\n", page_state_name(v->state), state_title(v->state));
     if (v->reasons != 0) {
@@ -266,7 +311,24 @@ int page_render_html(char* buf, size_t cap, const page_view* v)
         put(&o, "</ul>\n");
     }
 
-    put(&o, "<h2>Needs water</h2>\n<p>Unknown: not enough data (the analysis is not built yet).</p>\n");
+    put(&o, "<h2>Needs water</h2>\n");
+    switch (v->water) {
+    case THIRST_NEEDS_WATER:
+        put(&o, "<p class=\"state needs\">Yes, water this plant. Soil reading %u, dry line %u "
+                "(higher is wetter).</p>\n",
+            (unsigned)v->water_level_raw, (unsigned)v->water_dry_raw);
+        break;
+    case THIRST_OK:
+        put(&o, "<p>No. Soil reading %u, dry line %u (higher is wetter).</p>\n",
+            (unsigned)v->water_level_raw, (unsigned)v->water_dry_raw);
+        break;
+    case THIRST_UNKNOWN:
+        put(&o, "<p>Unknown: not enough data.</p>\n");
+        break;
+    }
+    if (v->water != THIRST_UNKNOWN) {
+        put(&o, "<p>The dry line is a draft and has not been calibrated.</p>\n");
+    }
     put(&o, "<h2>Time until dry</h2>\n<p>Not enough data.</p>\n");
 
     put(&o, "<h2>Soil</h2>\n");
@@ -343,7 +405,8 @@ int page_render_json(char* buf, size_t cap, const page_view* v)
     } else {
         put(&o, "\"light\":null,");
     }
-    put(&o, "\"needs_water\":\"unknown\",\"time_until_dry\":null,");
+    put(&o, "\"needs_water\":\"%s\",\"dry_raw\":%u,\"time_until_dry\":null,", water_word(v->water),
+        (unsigned)v->water_dry_raw);
     if (v->disk_known) {
         put(&o, "\"disk_free_mb\":%llu,", (unsigned long long)(v->disk_free_bytes >> 20));
     } else {
