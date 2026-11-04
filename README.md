@@ -17,15 +17,20 @@ You need a Raspberry Pi 5 with the sensors wired, and a Linux machine (WSL works
 
 1. Wire the sensors: [Parts](#parts) and [Wiring](#wiring).
 2. Set up the Pi and check the hardware: [Set up the Pi](#set-up-the-pi) and [Check the hardware](#check-the-hardware). Do not go on until the soil sensor and the light module both read.
-3. On the Linux machine, install the build tools ([Build, test and deploy](#build-test-and-deploy)), clone this repository and run `make test`.
-4. Open `systemd/greenthumb.service` and replace `dbautista` with your Pi username in `User=`, `WorkingDirectory=` and `ExecStart=`. Skip this if your Pi user is `dbautista`.
-5. Set `PI` to your Pi login, then deploy, install the service and start it with one command:
+3. Check that you can log in to the Pi from the Linux machine. SSH must be enabled on the Pi (`sudo raspi-config`, **Interface Options**, **SSH**), and both machines must be on the same network.
+   - On the Pi, run `whoami` (that is your `<user>`) and `hostname -I` (the first address is your `<ip>`, such as `192.168.1.50`).
+   - On the Linux machine, run `ssh <user>@<ip> echo ok`. It must print `ok` and must not ask for a password. If it asks for one, run `ssh-copy-id <user>@<ip>` once, then try again.
+   - Use the IP address, not a `.local` name. WSL cannot look up names like `greenthumb.local`, and the address can change after a reboot unless your router reserves it.
+   - If `ssh-copy-id` says `Permission denied (publickey)`, the Pi only accepts keys. See [Troubleshooting](#troubleshooting).
+4. On the Linux machine, install the build tools ([Build, test and deploy](#build-test-and-deploy)), clone this repository and run `make test`.
+5. Open `systemd/greenthumb.service` and replace `dbautista` with your Pi username in `User=`, `WorkingDirectory=` and `ExecStart=`. Skip this if your Pi user is `dbautista`.
+6. Set `PI` to your Pi login, then deploy, install the service and start it with one command:
    ```
-   PI=<user>@<host>
+   PI=<user>@<ip>
    make deploy PI=$PI && scp systemd/greenthumb.service $PI:/tmp/ && ssh -t $PI 'getent group i2c gpio && sudo cp /tmp/greenthumb.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable greenthumb && sudo systemctl restart greenthumb && systemctl status greenthumb --no-pager'
    ```
-   For example `PI=pi@raspberrypi.local`. Each part runs only if the one before it worked, so a failed build never reaches the Pi.
-6. Check it: [Run on the Pi](#run-on-the-pi) lists what you should see. Then open `http://<host>:8080/` on a phone or laptop on the same network.
+   For example `PI=pi@192.168.1.50`. Each part runs only if the one before it worked, so a failed build never reaches the Pi. If it stops with no message, a group is missing: run `getent group i2c gpio` on the Pi, which must print both lines.
+7. Check it: [Run on the Pi](#run-on-the-pi) lists what you should see. Then open `http://<ip>:8080/` on a phone or laptop on the same network.
 
 After a code change, redeploy and restart without reinstalling the service:
 
@@ -120,7 +125,7 @@ sudo apt install build-essential cmake rsync valgrind gcc-aarch64-linux-gnu
 | `make asan` | Builds with AddressSanitizer and UBSan, then runs the tests. |
 | `make memcheck` | Runs the tests under Valgrind. |
 | `make soakcheck` | A 1-hour miniature of the 48-hour soak test. For now it runs the fake sensor feeder, not the full system. It prints each process's memory and file counts, then PASS or the failed checks. |
-| `make deploy PI=pi@<host>` | Cross-compiles statically for the Pi 5 and copies the binaries to `~/greenthumb/bin` on the Pi. |
+| `make deploy PI=<user>@<ip>` | Cross-compiles statically for the Pi 5 and copies the binaries to `~/greenthumb/bin` on the Pi. |
 
 A change counts as done only when `make`, `make test` and `make asan` all pass.
 
@@ -132,11 +137,11 @@ Today this builds `gt-supervisor`, `gt-hub`, `gt-sensor-soil`, `gt-sensor-light`
 
 [Quick start](#quick-start) does steps 1 to 3 below in one command. Here is what that command does, one step at a time:
 
-1. Deploy from your Linux machine: `make deploy PI=<user>@<host>`. The binaries land in `~/greenthumb/bin` on the Pi. This copies only the binaries, not the service file.
+1. Deploy from your Linux machine: `make deploy PI=<user>@<ip>`. The binaries land in `~/greenthumb/bin` on the Pi. This copies only the binaries, not the service file.
 2. On the Pi, check the hardware first ([Check the hardware](#check-the-hardware)), then check the groups the unit needs: `getent group i2c gpio` must print both lines, or systemd refuses to start it.
 3. Copy `systemd/greenthumb.service` from the repository to the Pi and install it. It names the user `dbautista` and `/home/dbautista/greenthumb/bin`; edit those if your Pi user or deploy path is different. `restart` is used instead of `enable --now` so a service that is already running picks up new binaries.
    ```
-   scp systemd/greenthumb.service <user>@<host>:/tmp/
+   scp systemd/greenthumb.service <user>@<ip>:/tmp/
    sudo cp /tmp/greenthumb.service /etc/systemd/system/
    sudo systemctl daemon-reload
    sudo systemctl enable greenthumb
@@ -188,6 +193,11 @@ build/tools/gt-analyze --dir /var/lib/greenthumb/store
 - **`get_throttled` is not `0x0`:** use a proper Pi 5 power supply and a short, good cable.
 - **The light output never changes:** check 3.3 V, GND and the DO wire on pin 11, then turn the blue pot. The module's DO LED should flip when the light crosses the threshold.
 - **The page does not load on a phone:** the phone must be on the same network as the Pi, and the Pi only answers private addresses, so a guest or public network is refused. `greenthumb.local` worked on an iPhone; some phones cannot resolve `.local` names, so try `http://<pi-ip>:8080/` with the address from `hostname -I`. On the Pi, `pgrep -a gt-interface` shows whether it is running and `ss -ltn | grep 8080` whether it is listening.
+- **`Permission denied` or a login error from `make deploy`, `scp` or `ssh`:** the message tells you which problem it is.
+  - `Could not resolve hostname greenthumb.local`: your machine cannot look up `.local` names (WSL cannot). Use the Pi's IP address from `hostname -I` in `PI=`.
+  - `Permission denied (publickey,password)`: the Pi was reached but the login was refused. The user or password is wrong. Use the name from `whoami` on the Pi, and test with `ssh <user>@<ip> echo ok`.
+  - `Permission denied (publickey)` with no `password` in the brackets: the Pi accepts only SSH keys, so `ssh-copy-id` cannot work. Add your key by hand. On the Linux machine, print it with `cat ~/.ssh/id_ed25519.pub` (run `ssh-keygen -t ed25519` first if that file is missing). On the Pi, run `mkdir -p ~/.ssh && chmod 700 ~/.ssh`, then `echo 'PASTE_THE_LINE_HERE' >> ~/.ssh/authorized_keys`, then `chmod 600 ~/.ssh/authorized_keys`. Copy only the `.pub` file, never the private key.
+  - `<user> is not in the sudoers file`: the Pi user cannot use `sudo`. Use a user that can.
 - **Reporting a hardware problem:** include the output of `dmesg | tail -50`, `i2cdetect -y 1`, a raw sensor read, and the GPIO17 level. A description alone is not enough to diagnose it.
 
 ## Not built yet
