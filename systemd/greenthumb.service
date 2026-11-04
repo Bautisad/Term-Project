@@ -1,0 +1,25 @@
+# Green Thumb on the Pi: gt-supervisor starts the hub and both sensors.
+# Install: sudo cp systemd/greenthumb.service /etc/systemd/system/
+#          sudo systemctl daemon-reload && sudo systemctl enable --now greenthumb
+# Logs:    journalctl -u greenthumb
+# User and paths match `make deploy PI=dbautista@greenthumb.local`; change them to deploy elsewhere.
+[Unit]
+Description=Project Green Thumb: supervisor, hub and sensors
+
+[Service]
+User=dbautista
+SupplementaryGroups=i2c gpio
+WorkingDirectory=/home/dbautista/greenthumb/bin
+ExecStart=/home/dbautista/greenthumb/bin/gt-supervisor
+# Creates /run/greenthumb (hub socket) and /var/lib/greenthumb (the hub makes store/ inside it).
+RuntimeDirectory=greenthumb
+StateDirectory=greenthumb
+# DESIGN row 13: systemd is the supervisor's watcher.  If it dies, systemd kills the children
+# left in its cgroup before restarting it, so no orphan holds the store lock.
+Restart=always
+RestartSec=5
+# The supervisor's own shutdown allows each child its SIGTERM grace, then SIGKILL.
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

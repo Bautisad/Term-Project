@@ -67,19 +67,39 @@ endfunction()
 # --- Libraries (one per area; shared contracts live in include/) -------------
 gt_library(gt_ipc      ipc)        # Andrew
 gt_library(gt_sensors  sensors)    # Andrew: drivers shared by both sensor procs
+gt_library(gt_hub      hub)        # Andrew: everything but hub/hub_main.c
 gt_library(gt_supervisor_core supervisor)  # Andrew: everything but supervisor/main.c
 gt_library(gt_store    store)      # Duke
 gt_library(gt_analysis analysis)   # Duke
+gt_library(gt_interface interface) # Duke: LAN page logic and HTTP; main.c is the daemon
 if(TARGET gt_analysis AND UNIX)
   target_link_libraries(gt_analysis PUBLIC m)
+endif()
+if(TARGET gt_sensors AND TARGET gt_ipc)
+  target_link_libraries(gt_sensors PUBLIC gt_ipc)  # sensors send through ipc_io
+endif()
+if(TARGET gt_hub AND TARGET gt_sensors AND TARGET gt_store)
+  target_link_libraries(gt_hub PUBLIC gt_sensors gt_store)  # sensor_util helpers; store_append
+endif()
+if(TARGET gt_interface AND TARGET gt_store AND TARGET gt_sensors AND TARGET gt_ipc)
+  # daemon.c reads the store and reuses the sensors' supervisor plumbing (heartbeat, signals, log)
+  target_link_libraries(gt_interface PUBLIC gt_store gt_sensors gt_ipc)
+endif()
+if(TARGET gt_interface AND TARGET gt_analysis)
+  target_link_libraries(gt_interface PUBLIC gt_analysis)  # page.c asks thirst.h for needs-water
 endif()
 
 # --- Daemons ------------------------------------------------------------------
 gt_daemon(gt-supervisor    supervisor/main.c     gt_supervisor_core gt_ipc)
-gt_daemon(gt-hub           hub/main.c            gt_ipc gt_store)
+gt_daemon(gt-hub           hub/hub_main.c        gt_hub)
 gt_daemon(gt-sensor-soil   sensors/soil_main.c   gt_sensors gt_ipc)
 gt_daemon(gt-sensor-light  sensors/light_main.c  gt_sensors gt_ipc)
-gt_daemon(gt-interface     interface/main.c      gt_analysis gt_store)
+gt_daemon(gt-interface     interface/main.c      gt_interface gt_analysis gt_store)
+
+# --- Tools (tools/CMakeLists.txt; built before tests, which use them) --------
+if(EXISTS "${CMAKE_SOURCE_DIR}/tools/CMakeLists.txt")
+  add_subdirectory(tools)
+endif()
 
 # --- Tests (tests/CMakeLists.txt registers them with add_test) ---------------
 include(CTest)   # also calls enable_testing(); needed by `ctest -T memcheck`
