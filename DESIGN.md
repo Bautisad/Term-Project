@@ -98,6 +98,7 @@ What is stored?
 
 - One record per reading cycle: timestamp, sequence number, raw soil value (the STEMMA sensor's capacitive reading), light flag (bright or dark)
 - Raw soil value (not calibrated percent) so you can recalibrate later when the sensor drifts. The light flag is stored as read.
+- A SYNTHETIC flag (`GT_REC_SYNTHETIC`, 0x0040, in the record's flags field) marks a record written by the test feeder instead of read from a sensor. The hub never sets it. Every reader labels such data and none filters it out: the LAN page shows a banner and a `source` field (`none`, `live`, `synthetic` or `mixed`), `gt-analyze` prints a warning, `gt-csv` has a `synthetic` column and `gt-logcheck` prints `synthetic=N`. This is how replayed or fake data is kept from passing as live. The flag was added to a shared header, so it needs both owners' agreement.
 - Supervisor events (sensor died, restarted, log recovered) go in a separate text log
 
 At what rate?
@@ -257,6 +258,24 @@ Limits of this result:
 - `--rate 1` is the slowest the feeder offers, not the once-a-minute rate in the method, and at that pace a pull rarely lands mid-write.
 - No torn record was seen, so truncating a partial record after power loss was not exercised.
 - The writer log is not fsynced and its contents were lost in the pull, so each recovery was checked against a log of one start (`--restarts 0`).
+
+### Mechanism evaluation: D and E
+
+We claim two mechanisms from the course menu: **D** (custom storage layer, with
+a crash-consistency story) and **E** (multi-process architecture: sensors in
+separate processes, a hub, and a supervisor that survives any child dying). We
+do not claim A (we use the kernel's i2c-dev and GPIO drivers, not our own), C (no
+real-time scheduling), or F (one record a minute, not a high-rate pipeline). B:
+the light reader uses GPIO edge events, but we have no polling version to
+compare against, so we do not claim it.
+
+| | What the course asks | Measured so far | Not measured yet | Test that closes it |
+|---|---|---|---|---|
+| D | Append-only log with a crash-consistency story | P1: 500 of 500 `kill -9` passed (2026-11-01). P2: 2 of 10 power pulls passed (2026-11-02). Both on the fake feeder. | 8 more pulls; the once-a-minute rate; a pull with the real hub writing | P2 |
+| E | Sensors in separate processes, a hub, and a supervisor that survives any child dying | Supervisor tests with stand-in children: restart with backoff, a silent child, SIGKILL after the grace period, crash loop to DEGRADED (`supervisor_behavior`) | The real hub and both real sensors killed under the supervisor on the Pi; restart timing; the 48-hour run; the systemd unit on the Pi | P3, P4, S6/L6 |
+
+Until those rows are filled in, any claim about E on real hardware must say it
+rests on stand-in children only.
 
 
 ## Ownership Map

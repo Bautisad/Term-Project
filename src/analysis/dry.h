@@ -68,6 +68,7 @@ typedef struct dry_acc {
     bool        have_cur;
     dry_bucket  cur; /* the bucket still being filled */
     uint64_t    records, used;
+    uint64_t    synthetic; /* readable records with GT_REC_SYNTHETIC: counted, never filtered out */
     uint64_t    skipped_invalid, skipped_stuck, skipped_time_unset, skipped_corrupt;
     uint64_t    out_of_order;
     bool        overflow; /* DRY_MAX_BUCKETS reached; the read was stopped */
@@ -136,6 +137,7 @@ typedef struct dry_result {
     uint64_t  last_ts_ms;   /* the newest good bucket */
     double    last_raw;
     uint64_t  records, used;
+    uint64_t  synthetic;    /* of records: written by a fake source, not a sensor */
     uint64_t  skipped_invalid, skipped_stuck, skipped_time_unset, skipped_corrupt;
     uint64_t  out_of_order;
 } dry_result;

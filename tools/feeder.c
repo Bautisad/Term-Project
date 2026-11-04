@@ -92,7 +92,7 @@ static void make_record(uint32_t seq, uint64_t now_ms, gt_record* rec)
     rec->ts_unix_ms = now_ms;
     rec->seq = seq;
     rec->soil_raw = (uint16_t)(300u + (seq * 37u) % 700u);
-    rec->flags = (seq % 2u != 0u) ? GT_REC_LIGHT_BRIGHT : 0u;
+    rec->flags = GT_REC_SYNTHETIC | ((seq % 2u != 0u) ? GT_REC_LIGHT_BRIGHT : 0u);
     rec->light_bright_ms = (uint16_t)((seq * 13u) % 60001u);
     rec->light_edges = (uint16_t)(seq % 7u);
 }
@@ -269,8 +269,9 @@ int main(int argc, char** argv)
         return GT_EXIT_FATAL;
     }
     seq = info.has_records ? info.last_seq + 1u : 1u;
-    feeder_log("INFO", "start dir=%s rate=%llu resumed_seq=%u dropped_bytes=%llu", dir,
-               (unsigned long long)rate, (unsigned)seq, (unsigned long long)info.dropped_bytes);
+    feeder_log("INFO", "start source=SYNTHETIC dir=%s rate=%llu resumed_seq=%u dropped_bytes=%llu",
+               dir, (unsigned long long)rate, (unsigned)seq,
+               (unsigned long long)info.dropped_bytes);
 
     if (clock_gettime(CLOCK_MONOTONIC, &t0) != 0) {
         feeder_log("ERROR", "clock_gettime failed errno=%d", errno);

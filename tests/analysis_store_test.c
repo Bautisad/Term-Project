@@ -260,6 +260,7 @@ static void test_tool(void)
     CHECK(tool(args, out, sizeof out) == 0);
     CHECK(strstr(out, "cycles: 8 found, 8 shown") != NULL);
     CHECK(strstr(out, "skipped_invalid=12 skipped_stuck=6 skipped_time_unset=0 skipped_corrupt=0") != NULL);
+    CHECK(strstr(out, "SYNTHETIC") == NULL); /* live records: no warning, even with flagged readings */
     CHECK(strstr(out, "complete=yes verdict=ok slope_per_h=-3.0") != NULL ||
           strstr(out, "complete=yes verdict=ok slope_per_h=-2.9") != NULL);
     CHECK(strstr(out, "complete=no verdict=ok") != NULL);
@@ -356,6 +357,67 @@ static void test_tool_empty_store(void)
     rm_tree(empty);
 }
 
+/* n records one per STEP_MS, the first n_synth marked GT_REC_SYNTHETIC. */
+static void build_flagged(const char* dir, uint32_t n, uint32_t n_synth)
+{
+    gt_store*         s = NULL;
+    gt_store_recovery info;
+
+    CHECK(store_recover(dir, &s, &info) == 0);
+    for (uint32_t i = 0; i < n; i++) {
+        gt_record r;
+
+        (void)memset(&r, 0, sizeof r);
+        r.ts_unix_ms = T0 + i * STEP_MS;
+        r.seq = i + 1u;
+        r.soil_raw = 800;
+        r.flags = (i < n_synth) ? GT_REC_SYNTHETIC : 0u;
+        CHECK(store_append(s, &r) == 0);
+    }
+    store_close(s);
+}
+
+/* Fake records are counted and the tool says so; the analysis itself still runs on them. */
+static void test_synthetic(void)
+{
+    dry_result r;
+    char       out[8192];
+    char       args[512];
+    char       dir[256];
+
+    /* The three-week store above is all live. */
+    CHECK(analysis_run(g_dir, 0, UINT64_MAX, NULL, &r) == 0);
+    CHECK(r.synthetic == 0 && r.records > 0);
+
+    /* Mixed: 12 of 30. */
+    make_tmp(dir, sizeof dir, "synth");
+    build_flagged(dir, 30, 12);
+    CHECK(analysis_run(dir, 0, UINT64_MAX, NULL, &r) == 0);
+    CHECK(r.records == 30 && r.synthetic == 12 && r.used == 30);
+    (void)snprintf(args, sizeof args, "--dir %s --days 60 --now %llu", dir,
+                   (unsigned long long)(T0 + 30u * STEP_MS));
+    CHECK(tool(args, out, sizeof out) == 0);
+    CHECK(strstr(out, "WARNING: 12 of 30 records are SYNTHETIC (written by gt-feeder), not live sensor data") != NULL);
+    CHECK(strstr(out, "records: 30 used=30") != NULL); /* labeled, not filtered out */
+    rm_tree(dir);
+
+    /* All of them. */
+    make_tmp(dir, sizeof dir, "synth");
+    build_flagged(dir, 30, 30);
+    (void)snprintf(args, sizeof args, "--dir %s --days 60 --now %llu", dir,
+                   (unsigned long long)(T0 + 30u * STEP_MS));
+    CHECK(tool(args, out, sizeof out) == 0);
+    CHECK(strstr(out, "WARNING: 30 of 30 records are SYNTHETIC") != NULL);
+    rm_tree(dir);
+
+    /* No records, no warning. */
+    make_tmp(dir, sizeof dir, "synth");
+    (void)snprintf(args, sizeof args, "--dir %s --now 1700000000000", dir);
+    CHECK(tool(args, out, sizeof out) == 0);
+    CHECK(strstr(out, "SYNTHETIC") == NULL);
+    rm_tree(dir);
+}
+
 /* Last, because it damages the store: one record fails its CRC. */
 static void test_corrupt(void)
 {
@@ -389,6 +451,7 @@ int main(int argc, char** argv)
     test_library_errors();
     test_tool();
     test_tool_empty_store();
+    test_synthetic();
     test_corrupt();
     rm_tree(g_dir);
     (void)puts("analysis_store_test: ok");

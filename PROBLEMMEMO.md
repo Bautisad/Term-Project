@@ -19,10 +19,26 @@ tells us whether the plant is in bright or dark conditions, which is another fac
 ## The mechanisms
 D: Custom Storage Layer
 - Uses history of moisture and light over weeks.
+- Why we need history: how soon the soil will be dry can only be estimated from
+  a full dry-down (watering until dry), which takes days. How much the light
+  changes that rate needs several of these cycles. The latest reading alone
+  cannot tell the owner that.
+- Why our own log: the owner will not babysit the device, and a home power cut
+  can stop the Pi mid-write on its SD card. The record log must survive that
+  without the owner doing anything. Each record is a fixed 24 bytes with its own
+  checksum, appended and synced to disk, so after a crash we know exactly which
+  records are good and lose at most the one being written. A plain text or CSV
+  file can end in a half-written line and cannot tell damaged data from good.
 E: Multi-Process Architecture
-- Runs unattended for days on end, which a single sensor failure or driver failure should not result in failing the whole system.
-- We isolate each sensor with a "supervisor" process
-    - The supervisor resets the sensor whenever it fails.
+- The device runs unattended for days. The two sensors fail in different ways
+  (the soil sensor can return garbage or hang the I2C bus, the light module's
+  input can float), and one failing must not stop the other sensor or the log.
+- Each sensor runs in its own process, one hub process is the only writer to
+  the store, and a supervisor process restarts whatever dies (with backoff, and
+  a DEGRADED state if one keeps crashing). systemd restarts the supervisor
+  itself.
+- A restart loses only the readings taken while the process was down, and the
+  gap shows in the sequence numbers.
 
 ## The risk
 Sensors miscalibrating or corrosion. Corrosion is common for cheap soil moisture sensors. 

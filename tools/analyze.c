@@ -142,6 +142,11 @@ int main(int argc, char** argv)
 
     format_time(from, a, sizeof a);
     (void)printf("window: from %s, %llu days\n", a, (unsigned long long)days);
+    if (r.synthetic != 0u) {
+        (void)printf("WARNING: %llu of %llu records are SYNTHETIC (written by gt-feeder), "
+                     "not live sensor data\n",
+                     (unsigned long long)r.synthetic, (unsigned long long)r.records);
+    }
     (void)printf("records: %llu used=%llu skipped_invalid=%llu skipped_stuck=%llu skipped_time_unset=%llu "
                  "skipped_corrupt=%llu out_of_order=%llu\n",
                  (unsigned long long)r.records, (unsigned long long)r.used,

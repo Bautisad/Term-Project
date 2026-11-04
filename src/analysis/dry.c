@@ -94,6 +94,9 @@ int dry_acc_visit(const gt_record* rec, gt_store_rec_status status, void* ctx)
         return 0;
     }
     a->records++;
+    if ((rec->flags & GT_REC_SYNTHETIC) != 0u) {
+        a->synthetic++; /* only counted: the caller labels it, the analysis is unchanged */
+    }
     if ((rec->flags & GT_REC_SOIL_INVALID) != 0u) {
         a->skipped_invalid++;
         return 0;
@@ -337,6 +340,7 @@ void dry_analyze(const dry_acc* a, dry_result* out)
     out->dry_raw = a->p.dry_raw;
     out->records = a->records;
     out->used = a->used;
+    out->synthetic = a->synthetic;
     out->skipped_invalid = a->skipped_invalid;
     out->skipped_stuck = a->skipped_stuck;
     out->skipped_time_unset = a->skipped_time_unset;

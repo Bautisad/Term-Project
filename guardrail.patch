@@ -1,0 +1,777 @@
+diff --git a/DESIGN.md b/DESIGN.md
+index eee2f8d..9f92792 100644
+--- a/DESIGN.md
++++ b/DESIGN.md
+@@ -98,6 +98,7 @@ What is stored?
+ 
+ - One record per reading cycle: timestamp, sequence number, raw soil value (the STEMMA sensor's capacitive reading), light flag (bright or dark)
+ - Raw soil value (not calibrated percent) so you can recalibrate later when the sensor drifts. The light flag is stored as read.
++- A SYNTHETIC flag (`GT_REC_SYNTHETIC`, 0x0040, in the record's flags field) marks a record written by the test feeder instead of read from a sensor. The hub never sets it. Every reader labels such data and none filters it out: the LAN page shows a banner and a `source` field (`none`, `live`, `synthetic` or `mixed`), `gt-analyze` prints a warning, `gt-csv` has a `synthetic` column and `gt-logcheck` prints `synthetic=N`. This is how replayed or fake data is kept from passing as live. The flag was added to a shared header, so it needs both owners' agreement.
+ - Supervisor events (sensor died, restarted, log recovered) go in a separate text log
+ 
+ At what rate?
+@@ -258,6 +259,24 @@ Limits of this result:
+ - No torn record was seen, so truncating a partial record after power loss was not exercised.
+ - The writer log is not fsynced and its contents were lost in the pull, so each recovery was checked against a log of one start (`--restarts 0`).
+ 
++### Mechanism evaluation: D and E
++
++We claim two mechanisms from the course menu: **D** (custom storage layer, with
++a crash-consistency story) and **E** (multi-process architecture: sensors in
++separate processes, a hub, and a supervisor that survives any child dying). We
++do not claim A (we use the kernel's i2c-dev and GPIO drivers, not our own), C (no
++real-time scheduling), or F (one record a minute, not a high-rate pipeline). B:
++the light reader uses GPIO edge events, but we have no polling version to
++compare against, so we do not claim it.
++
++| | What the course asks | Measured so far | Not measured yet | Test that closes it |
++|---|---|---|---|---|
++| D | Append-only log with a crash-consistency story | P1: 500 of 500 `kill -9` passed (2026-11-01). P2: 2 of 10 power pulls passed (2026-11-02). Both on the fake feeder. | 8 more pulls; the once-a-minute rate; a pull with the real hub writing | P2 |
++| E | Sensors in separate processes, a hub, and a supervisor that survives any child dying | Supervisor tests with stand-in children: restart with backoff, a silent child, SIGKILL after the grace period, crash loop to DEGRADED (`supervisor_behavior`) | The real hub and both real sensors killed under the supervisor on the Pi; restart timing; the 48-hour run; the systemd unit on the Pi | P3, P4, S6/L6 |
++
++Until those rows are filled in, any claim about E on real hardware must say it
++rests on stand-in children only.
++
+ 
+ ## Ownership Map
+ 
+diff --git a/HARDWARE-CHECKS.md b/HARDWARE-CHECKS.md
+index be9191b..83f087d 100644
+--- a/HARDWARE-CHECKS.md
++++ b/HARDWARE-CHECKS.md
+@@ -186,3 +186,26 @@ What this checks (#43): that `gt-interface --dry N` shows `needs_water` as `yes`
+ 
+ - Real sensor data, the hub and the systemd unit (Andrew's, not tried on the Pi).
+ - The dry threshold against real soil (S1, C4), and time-until-dry.
++
++## 2026-11-04: the synthetic-data label on the Pi
++
++**Status: not run on the Pi yet.** The label is built and passes `make test`, `make asan` and `make memcheck` on the development machine (see README "View the page"). Nothing below has been pasted from the Pi, so no result is claimed. The runs above (2026-11-02 and 2026-11-03) were made before the label existed, so their feeder records have no flag.
++
++What this checks: that records written by `gt-feeder` are labeled as synthetic on the Pi, on the page, in the JSON, in the feeder log, and in the tools. It does not check the sensors; with real sensors and the hub, the same page should say `"source":"live"` and show no banner, which is a separate run.
++
++### Steps (Duke runs these on the Pi)
++
++1. `git pull`, then `make test`. Paste the summary line.
++2. Terminal A: `build/tools/gt-feeder --dir /tmp/gt-label --rate 1`. Paste its first log line. Expected: it contains `source=SYNTHETIC`.
++3. Terminal B: `build/gt-interface --dir /tmp/gt-label`, then `curl -s localhost:8080/status.json`. Expected: `"source":"synthetic"` and `"synthetic_records"` equal to `window.records`.
++4. Open `http://greenthumb.local:8080/` on a phone. Expected: a dark "SYNTHETIC DATA" banner under the title. Say whether it is visible.
++5. Stop both (Ctrl-C). Run `build/tools/gt-analyze --dir /tmp/gt-label --now $(($(date +%s)*1000))`, `build/tools/gt-csv --dir /tmp/gt-label | head -3` and `build/tools/gt-logcheck --dir /tmp/gt-label`. Expected: a `WARNING: n of n records are SYNTHETIC` line, a last column `synthetic` with `yes`, and `synthetic=n` at the end of the summary.
++
++### Results
++
++None yet.
++
++### Not covered by this entry
++
++- Live data: a store written by the hub from the real sensors should read `"source":"live"` with no banner. That needs the hub on the Pi with the real sensors, which has not been run.
++- A directory that holds both fake and live records (`"source":"mixed"`) is covered by tests on the development machine only.
+diff --git a/PROBLEMMEMO.md b/PROBLEMMEMO.md
+index ac71d44..5debb33 100644
+--- a/PROBLEMMEMO.md
++++ b/PROBLEMMEMO.md
+@@ -19,10 +19,26 @@ tells us whether the plant is in bright or dark conditions, which is another fac
+ ## The mechanisms
+ D: Custom Storage Layer
+ - Uses history of moisture and light over weeks.
++- Why we need history: how soon the soil will be dry can only be estimated from
++  a full dry-down (watering until dry), which takes days. How much the light
++  changes that rate needs several of these cycles. The latest reading alone
++  cannot tell the owner that.
++- Why our own log: the owner will not babysit the device, and a home power cut
++  can stop the Pi mid-write on its SD card. The record log must survive that
++  without the owner doing anything. Each record is a fixed 24 bytes with its own
++  checksum, appended and synced to disk, so after a crash we know exactly which
++  records are good and lose at most the one being written. A plain text or CSV
++  file can end in a half-written line and cannot tell damaged data from good.
+ E: Multi-Process Architecture
+-- Runs unattended for days on end, which a single sensor failure or driver failure should not result in failing the whole system.
+-- We isolate each sensor with a "supervisor" process
+-    - The supervisor resets the sensor whenever it fails.
++- The device runs unattended for days. The two sensors fail in different ways
++  (the soil sensor can return garbage or hang the I2C bus, the light module's
++  input can float), and one failing must not stop the other sensor or the log.
++- Each sensor runs in its own process, one hub process is the only writer to
++  the store, and a supervisor process restarts whatever dies (with backoff, and
++  a DEGRADED state if one keeps crashing). systemd restarts the supervisor
++  itself.
++- A restart loses only the readings taken while the process was down, and the
++  gap shows in the sequence numbers.
+ 
+ ## The risk
+ Sensors miscalibrating or corrosion. Corrosion is common for cheap soil moisture sensors. 
+\ No newline at end of file
+diff --git a/README.md b/README.md
+index 1f45cf0..c990993 100644
+--- a/README.md
++++ b/README.md
+@@ -162,8 +162,9 @@ build/tools/gt-feeder --dir /tmp/gt-demo --rate 1
+ build/gt-interface --dir /tmp/gt-demo
+ ```
+ 
+-Then open `http://greenthumb.local:8080/` on a phone or laptop on the same network (we tried this on an iPhone in Safari). `curl -s localhost:8080/status.json` on the Pi shows the JSON. The values are the feeder's made-up numbers, not sensor readings.
++Then open `http://greenthumb.local:8080/` on a phone or laptop on the same network (we tried this on an iPhone in Safari). `curl -s localhost:8080/status.json` on the Pi shows the JSON. The values are the feeder's made-up numbers, not sensor readings, and the page says so (next list).
+ 
++- **Fake data is labeled:** every record `gt-feeder` writes carries the `SYNTHETIC` flag (`include/record.h`), and the hub never sets it. The page shows a dark "SYNTHETIC DATA: n of m readings..." banner when any reading in the last 24 hours is flagged, and `/status.json` has `"source"` (`none`, `live`, `synthetic` or `mixed`) and `"synthetic_records"`. The feeder logs `start source=SYNTHETIC`. `gt-analyze` prints a `WARNING: n of m records are SYNTHETIC` line, `gt-csv` has a last `synthetic` column (`yes` or `no`), and `gt-logcheck` ends its summary with `synthetic=N`. The label never changes a judgment: flagged records are still analyzed, shown and checked. Not yet checked on the Pi (see `HARDWARE-CHECKS.md`).
+ - **Address and port:** with no flags it listens on every interface, port 8080. `--port N` and `--bind IPV4` change that.
+ - **Who is served:** only private IPv4 addresses (127/8, 10/8, 172.16/12, 192.168/16 and 169.254/16). Anything else is closed without an answer.
+ - **The store:** `--dir PATH` says where to read it (read only). The default, `/var/lib/greenthumb/store`, is where the hub is meant to write.
+diff --git a/include/record.h b/include/record.h
+index 7541a53..df5eeda 100644
+--- a/include/record.h
++++ b/include/record.h
+@@ -32,6 +32,8 @@
+ #define GT_REC_LIGHT_BRIGHT  0x0008u /* level at the end of the cycle (1 = bright) */
+ #define GT_REC_TIME_UNSET    0x0010u /* wall clock earlier than the last record or build time */
+ #define GT_REC_UNDERVOLT     0x0020u /* Pi reported under-voltage during the cycle */
++#define GT_REC_SYNTHETIC     0x0040u /* written by gt-feeder or another fake source, never by a
++                                      * sensor: readers must label the data as not live */
+ 
+ typedef struct gt_record {
+     uint64_t ts_unix_ms;
+diff --git a/src/analysis/dry.c b/src/analysis/dry.c
+index 88bb4a7..9118277 100644
+--- a/src/analysis/dry.c
++++ b/src/analysis/dry.c
+@@ -94,6 +94,9 @@ int dry_acc_visit(const gt_record* rec, gt_store_rec_status status, void* ctx)
+         return 0;
+     }
+     a->records++;
++    if ((rec->flags & GT_REC_SYNTHETIC) != 0u) {
++        a->synthetic++; /* only counted: the caller labels it, the analysis is unchanged */
++    }
+     if ((rec->flags & GT_REC_SOIL_INVALID) != 0u) {
+         a->skipped_invalid++;
+         return 0;
+@@ -337,6 +340,7 @@ void dry_analyze(const dry_acc* a, dry_result* out)
+     out->dry_raw = a->p.dry_raw;
+     out->records = a->records;
+     out->used = a->used;
++    out->synthetic = a->synthetic;
+     out->skipped_invalid = a->skipped_invalid;
+     out->skipped_stuck = a->skipped_stuck;
+     out->skipped_time_unset = a->skipped_time_unset;
+diff --git a/src/analysis/dry.h b/src/analysis/dry.h
+index 5589dd2..673a18f 100644
+--- a/src/analysis/dry.h
++++ b/src/analysis/dry.h
+@@ -68,6 +68,7 @@ typedef struct dry_acc {
+     bool        have_cur;
+     dry_bucket  cur; /* the bucket still being filled */
+     uint64_t    records, used;
++    uint64_t    synthetic; /* readable records with GT_REC_SYNTHETIC: counted, never filtered out */
+     uint64_t    skipped_invalid, skipped_stuck, skipped_time_unset, skipped_corrupt;
+     uint64_t    out_of_order;
+     bool        overflow; /* DRY_MAX_BUCKETS reached; the read was stopped */
+@@ -136,6 +137,7 @@ typedef struct dry_result {
+     uint64_t  last_ts_ms;   /* the newest good bucket */
+     double    last_raw;
+     uint64_t  records, used;
++    uint64_t  synthetic;    /* of records: written by a fake source, not a sensor */
+     uint64_t  skipped_invalid, skipped_stuck, skipped_time_unset, skipped_corrupt;
+     uint64_t  out_of_order;
+ } dry_result;
+diff --git a/src/interface/page.c b/src/interface/page.c
+index 7c82bc2..f4e7bbe 100644
+--- a/src/interface/page.c
++++ b/src/interface/page.c
+@@ -91,6 +91,9 @@ int page_acc_visit(const gt_record* rec, gt_store_rec_status status, void* ctx)
+     if ((rec->flags & GT_REC_TIME_UNSET) != 0) {
+         a->time_unset++;
+     }
++    if ((rec->flags & GT_REC_SYNTHETIC) != 0) {
++        a->synthetic++;
++    }
+     return 0;
+ }
+ 
+@@ -117,6 +120,16 @@ void page_judge(const page_input* in, page_view* v)
+     v->time_unset = a->time_unset;
+     v->gap_events = a->gap_events;
+     v->missing = a->missing;
++    v->synthetic = a->synthetic;
++    if (a->records == 0) {
++        v->source = PAGE_SRC_NONE;
++    } else if (a->synthetic == 0) {
++        v->source = PAGE_SRC_LIVE;
++    } else if (a->synthetic >= a->records) {
++        v->source = PAGE_SRC_SYNTHETIC;
++    } else {
++        v->source = PAGE_SRC_MIXED;
++    }
+ 
+     if (in->store_errno != 0) {
+         r |= PAGE_R_STORE_UNREADABLE;
+@@ -203,6 +216,21 @@ const char* page_state_name(page_state s)
+     return "no_data";
+ }
+ 
++const char* page_source_name(page_source s)
++{
++    switch (s) {
++    case PAGE_SRC_LIVE:
++        return "live";
++    case PAGE_SRC_SYNTHETIC:
++        return "synthetic";
++    case PAGE_SRC_MIXED:
++        return "mixed";
++    case PAGE_SRC_NONE:
++        break;
++    }
++    return "none";
++}
++
+ /* A bounded writer: once anything does not fit, bad stays set and nothing more is written. */
+ typedef struct out {
+     char*  buf;
+@@ -296,7 +324,13 @@ int page_render_html(char* buf, size_t cap, const page_view* v)
+             ".state{padding:.5rem .75rem;border-radius:.4rem;font-weight:bold}"
+             ".ok{background:#d8f0d8}.degraded{background:#f6d6d6}.no_data{background:#e6e6e6}"
+             ".needs{background:#f6e0a8;color:#5a3a00}"
++            ".fake{background:#222;color:#fff;padding:.5rem .75rem;border-radius:.4rem}"
+             "</style></head><body>\n<h1>Green Thumb</h1>\n");
++    if (v->source == PAGE_SRC_SYNTHETIC || v->source == PAGE_SRC_MIXED) {
++        put(&o, "<p class=\"fake\">SYNTHETIC DATA: %llu of %llu readings in this window came from "
++                "the test feeder (gt-feeder), not from the sensors. Do not treat them as live.</p>\n",
++            (unsigned long long)v->synthetic, (unsigned long long)v->records);
++    }
+     put(&o, "<p class=\"state %s\">%s</p>\n", page_state_name(v->state), state_title(v->state));
+     if (v->reasons != 0) {
+         put(&o, "<ul>\n");
+@@ -379,7 +413,9 @@ int page_render_json(char* buf, size_t cap, const page_view* v)
+     if (cap == 0) {
+         return -1;
+     }
+-    put(&o, "{\"state\":\"%s\",\"reasons\":[", page_state_name(v->state));
++    put(&o, "{\"state\":\"%s\",\"source\":\"%s\",\"synthetic_records\":%llu,\"reasons\":[",
++        page_state_name(v->state), page_source_name(v->source),
++        (unsigned long long)v->synthetic);
+     for (size_t i = 0; i < N_REASONS; i++) {
+         if ((v->reasons & REASONS[i].bit) != 0) {
+             put(&o, "%s\"%s\"", first ? "" : ",", REASONS[i].id);
+diff --git a/src/interface/page.h b/src/interface/page.h
+index 9a51aa2..c6f3fc1 100644
+--- a/src/interface/page.h
++++ b/src/interface/page.h
+@@ -35,6 +35,7 @@ typedef struct page_acc {
+     uint64_t  light_invalid;
+     uint64_t  undervolt;
+     uint64_t  time_unset;
++    uint64_t  synthetic;     /* readable records with GT_REC_SYNTHETIC (fake feeder, not a sensor) */
+     uint64_t  gap_events;    /* places where seq jumped forward by more than one */
+     uint64_t  missing;       /* records those jumps skipped */
+     bool      have_prev;
+@@ -88,8 +89,19 @@ typedef enum page_state {
+ #define PAGE_R_NO_SOIL          0x0100u /* records exist but none has a valid soil value */
+ #define PAGE_R_LOW_DISK         0x0200u
+ 
++/* Where the readable records of the window came from.  This labels the data only: it never
++ * changes the page state or needs-water. */
++typedef enum page_source {
++    PAGE_SRC_NONE      = 0, /* no readable records */
++    PAGE_SRC_LIVE      = 1, /* none carries GT_REC_SYNTHETIC */
++    PAGE_SRC_SYNTHETIC = 2, /* all carry it */
++    PAGE_SRC_MIXED     = 3  /* some do */
++} page_source;
++
+ typedef struct page_view {
+     page_state state;
++    page_source source;
++    uint64_t   synthetic;     /* records of the window with GT_REC_SYNTHETIC */
+     unsigned   reasons;       /* PAGE_R_* */
+     int        store_errno;
+     bool       have_last;
+@@ -114,6 +126,7 @@ typedef struct page_view {
+ void page_judge(const page_input* in, page_view* v);
+ 
+ const char* page_state_name(page_state s); /* "ok", "degraded" or "no_data" */
++const char* page_source_name(page_source s); /* "none", "live", "synthetic" or "mixed" */
+ 
+ /* Render into buf (cap bytes).  Returns the length without the terminating NUL, or -1 if
+  * cap is too small, in which case buf holds an empty string (if cap > 0). */
+diff --git a/tests/analysis_store_test.c b/tests/analysis_store_test.c
+index 85b6b46..5d1cbaf 100644
+--- a/tests/analysis_store_test.c
++++ b/tests/analysis_store_test.c
+@@ -260,6 +260,7 @@ static void test_tool(void)
+     CHECK(tool(args, out, sizeof out) == 0);
+     CHECK(strstr(out, "cycles: 8 found, 8 shown") != NULL);
+     CHECK(strstr(out, "skipped_invalid=12 skipped_stuck=6 skipped_time_unset=0 skipped_corrupt=0") != NULL);
++    CHECK(strstr(out, "SYNTHETIC") == NULL); /* live records: no warning, even with flagged readings */
+     CHECK(strstr(out, "complete=yes verdict=ok slope_per_h=-3.0") != NULL ||
+           strstr(out, "complete=yes verdict=ok slope_per_h=-2.9") != NULL);
+     CHECK(strstr(out, "complete=no verdict=ok") != NULL);
+@@ -356,6 +357,67 @@ static void test_tool_empty_store(void)
+     rm_tree(empty);
+ }
+ 
++/* n records one per STEP_MS, the first n_synth marked GT_REC_SYNTHETIC. */
++static void build_flagged(const char* dir, uint32_t n, uint32_t n_synth)
++{
++    gt_store*         s = NULL;
++    gt_store_recovery info;
++
++    CHECK(store_recover(dir, &s, &info) == 0);
++    for (uint32_t i = 0; i < n; i++) {
++        gt_record r;
++
++        (void)memset(&r, 0, sizeof r);
++        r.ts_unix_ms = T0 + i * STEP_MS;
++        r.seq = i + 1u;
++        r.soil_raw = 800;
++        r.flags = (i < n_synth) ? GT_REC_SYNTHETIC : 0u;
++        CHECK(store_append(s, &r) == 0);
++    }
++    store_close(s);
++}
++
++/* Fake records are counted and the tool says so; the analysis itself still runs on them. */
++static void test_synthetic(void)
++{
++    dry_result r;
++    char       out[8192];
++    char       args[512];
++    char       dir[256];
++
++    /* The three-week store above is all live. */
++    CHECK(analysis_run(g_dir, 0, UINT64_MAX, NULL, &r) == 0);
++    CHECK(r.synthetic == 0 && r.records > 0);
++
++    /* Mixed: 12 of 30. */
++    make_tmp(dir, sizeof dir, "synth");
++    build_flagged(dir, 30, 12);
++    CHECK(analysis_run(dir, 0, UINT64_MAX, NULL, &r) == 0);
++    CHECK(r.records == 30 && r.synthetic == 12 && r.used == 30);
++    (void)snprintf(args, sizeof args, "--dir %s --days 60 --now %llu", dir,
++                   (unsigned long long)(T0 + 30u * STEP_MS));
++    CHECK(tool(args, out, sizeof out) == 0);
++    CHECK(strstr(out, "WARNING: 12 of 30 records are SYNTHETIC (written by gt-feeder), not live sensor data") != NULL);
++    CHECK(strstr(out, "records: 30 used=30") != NULL); /* labeled, not filtered out */
++    rm_tree(dir);
++
++    /* All of them. */
++    make_tmp(dir, sizeof dir, "synth");
++    build_flagged(dir, 30, 30);
++    (void)snprintf(args, sizeof args, "--dir %s --days 60 --now %llu", dir,
++                   (unsigned long long)(T0 + 30u * STEP_MS));
++    CHECK(tool(args, out, sizeof out) == 0);
++    CHECK(strstr(out, "WARNING: 30 of 30 records are SYNTHETIC") != NULL);
++    rm_tree(dir);
++
++    /* No records, no warning. */
++    make_tmp(dir, sizeof dir, "synth");
++    (void)snprintf(args, sizeof args, "--dir %s --now 1700000000000", dir);
++    CHECK(tool(args, out, sizeof out) == 0);
++    CHECK(strstr(out, "SYNTHETIC") == NULL);
++    rm_tree(dir);
++}
++
+ /* Last, because it damages the store: one record fails its CRC. */
+ static void test_corrupt(void)
+ {
+@@ -389,6 +451,7 @@ int main(int argc, char** argv)
+     test_library_errors();
+     test_tool();
+     test_tool_empty_store();
++    test_synthetic();
+     test_corrupt();
+     rm_tree(g_dir);
+     (void)puts("analysis_store_test: ok");
+diff --git a/tests/csvexport_test.c b/tests/csvexport_test.c
+index 0190f1d..0d80905 100644
+--- a/tests/csvexport_test.c
++++ b/tests/csvexport_test.c
+@@ -32,7 +32,7 @@
+ 
+ #define HEADER                                                                             \
+     "time_utc,unix_ms,seq,soil_raw,soil_valid,soil_stuck,light,light_valid,"               \
+-    "light_bright_ms,light_changes,clock_unset,undervoltage\n"
++    "light_bright_ms,light_changes,clock_unset,undervoltage,synthetic\n"
+ 
+ static const char* g_csv;
+ 
+@@ -231,18 +231,44 @@ static void test_columns_and_flags(void)
+     CHECK(export_store(&e, NULL, out, sizeof out, err, sizeof err) == 0);
+     CHECK(strcmp(out,
+                  HEADER
+-                 "2023-11-14T22:13:20.000Z,1700000000000,1,812,yes,no,bright,yes,45000,3,no,no\n"
+-                 "2023-11-14T22:13:21.000Z,1700000001000,2,0,no,no,dark,yes,0,0,no,no\n"
+-                 "2023-11-14T22:13:22.000Z,1700000002000,3,790,yes,yes,dark,yes,60000,0,no,no\n"
+-                 "2023-11-14T22:13:23.000Z,1700000003000,4,801,yes,no,dark,no,0,65535,no,no\n"
+-                 "2023-11-14T22:13:24.000Z,1700000004000,5,800,yes,no,dark,yes,12,1,yes,no\n"
+-                 "2023-11-14T22:13:25.000Z,1700000005000,6,799,yes,no,bright,yes,1,2,no,yes\n"
+-                 "2023-11-14T22:13:26.007Z,1700000006007,7,65535,yes,no,dark,yes,0,0,no,no\n") ==
++                 "2023-11-14T22:13:20.000Z,1700000000000,1,812,yes,no,bright,yes,45000,3,no,no,no\n"
++                 "2023-11-14T22:13:21.000Z,1700000001000,2,0,no,no,dark,yes,0,0,no,no,no\n"
++                 "2023-11-14T22:13:22.000Z,1700000002000,3,790,yes,yes,dark,yes,60000,0,no,no,no\n"
++                 "2023-11-14T22:13:23.000Z,1700000003000,4,801,yes,no,dark,no,0,65535,no,no,no\n"
++                 "2023-11-14T22:13:24.000Z,1700000004000,5,800,yes,no,dark,yes,12,1,yes,no,no\n"
++                 "2023-11-14T22:13:25.000Z,1700000005000,6,799,yes,no,bright,yes,1,2,no,yes,no\n"
++                 "2023-11-14T22:13:26.007Z,1700000006007,7,65535,yes,no,dark,yes,0,0,no,no,no\n") ==
+           0);
+     CHECK(strstr(err, "rows=7 corrupt_skipped=0") != NULL);
+     rm_tree(e.root);
+ }
+ 
++/* Fake records are marked on their own row; live rows, whatever their other flags, are not. */
++static void test_synthetic_column(void)
++{
++    env       e;
++    char      out[2048];
++    char      err[1024];
++    gt_record recs[] = {
++        rec(T_BASE, 1, 812, GT_REC_SYNTHETIC | GT_REC_LIGHT_BRIGHT, 45000, 3),
++        rec(T_BASE + 1000, 2, 800, 0, 0, 0),
++        rec(T_BASE + 2000, 3, 0, GT_REC_SYNTHETIC | GT_REC_SOIL_INVALID, 0, 0),
++        rec(T_BASE + 3000, 4, 799, GT_REC_SOIL_STUCK | GT_REC_TIME_UNSET | GT_REC_UNDERVOLT, 1, 1),
++    };
++
++    env_init(&e);
++    build(e.store, recs, sizeof recs / sizeof recs[0]);
++    CHECK(export_store(&e, NULL, out, sizeof out, err, sizeof err) == 0);
++    CHECK(strcmp(out,
++                 HEADER
++                 "2023-11-14T22:13:20.000Z,1700000000000,1,812,yes,no,bright,yes,45000,3,no,no,yes\n"
++                 "2023-11-14T22:13:21.000Z,1700000001000,2,800,yes,no,dark,yes,0,0,no,no,no\n"
++                 "2023-11-14T22:13:22.000Z,1700000002000,3,0,no,no,dark,yes,0,0,no,no,yes\n"
++                 "2023-11-14T22:13:23.000Z,1700000003000,4,799,yes,yes,dark,yes,1,1,yes,yes,no\n") ==
++          0);
++    rm_tree(e.root);
++}
++
+ /* --from is inclusive, --to exclusive, and a store that spans two days reads oldest first. */
+ static void test_ranges_and_days(void)
+ {
+@@ -406,6 +432,7 @@ int main(int argc, char** argv)
+     CHECK(argc == 2);
+     g_csv = argv[1];
+     test_columns_and_flags();
++    test_synthetic_column();
+     test_ranges_and_days();
+     test_corrupt_record();
+     test_empty_and_missing();
+diff --git a/tests/feeder_test.c b/tests/feeder_test.c
+index dff71d4..4c085df 100644
+--- a/tests/feeder_test.c
++++ b/tests/feeder_test.c
+@@ -207,7 +207,7 @@ static int verify_fn(const gt_record* rec, gt_store_rec_status status, void* ctx
+     CHECK(seq == v->n + 1); /* contiguous from 1 */
+     CHECK(rec->ts_unix_ms >= v->last_ts);
+     CHECK(rec->soil_raw == 300u + (seq * 37u) % 700u);
+-    CHECK(rec->flags == ((seq % 2u != 0u) ? 0x0008u : 0u));
++    CHECK(rec->flags == (GT_REC_SYNTHETIC | ((seq % 2u != 0u) ? 0x0008u : 0u)));
+     CHECK(rec->light_bright_ms == (seq * 13u) % 60001u);
+     CHECK(rec->light_edges == seq % 7u);
+     v->n++;
+diff --git a/tests/interface_lifecycle_test.c b/tests/interface_lifecycle_test.c
+index 5d5eab8..e1ef4c3 100644
+--- a/tests/interface_lifecycle_test.c
++++ b/tests/interface_lifecycle_test.c
+@@ -670,6 +670,7 @@ static void full_run(const char* tmp)
+     /* No store yet: the daemon stays up, the page and the heartbeat both say so. */
+     CHECK(get_status(port));
+     CHECK(strstr(body(), "\"state\":\"degraded\"") != NULL && strstr(body(), "store_unreadable") != NULL);
++    CHECK(strstr(body(), "\"source\":\"none\"") != NULL); /* no store, so no source to name */
+     expect_hb_state(sv[0], pid, GT_CHILD_DEGRADED, 20);
+ 
+     /* The store appears (a real feeder writing five records a second) and the page follows it,
+@@ -682,6 +683,13 @@ static void full_run(const char* tmp)
+     feeder = spawn(g_feeder, fargs, flog, -1, -1);
+     n1 = wait_records(port, 1);
+     CHECK(strstr(body(), "\"soil\":{") != NULL);
++    /* Everything the real feeder wrote is labeled synthetic: in its own log, in the JSON and on
++     * the page. */
++    CHECK(log_has(flog, "source=SYNTHETIC"));
++    CHECK(strstr(body(), "\"source\":\"synthetic\"") != NULL);
++    CHECK(json_u64("\"synthetic_records\":") == json_u64("\"records\":"));
++    get(port, "GET / HTTP/1.1\r\n\r\n");
++    CHECK(status_of() == 200 && strstr(body(), "SYNTHETIC DATA:") != NULL);
+     n2 = wait_records(port, n1 + 3);
+     CHECK(n2 > n1);
+     (void)get_status(port); /* keep the heartbeat state fresh: a request is what looks at the store */
+diff --git a/tests/interface_page_test.c b/tests/interface_page_test.c
+index 14f5a57..f231983 100644
+--- a/tests/interface_page_test.c
++++ b/tests/interface_page_test.c
+@@ -548,11 +548,90 @@ static void needs_water_on_a_degraded_page(void)
+     water_is(&v, THIRST_NEEDS_WATER, "yes");
+ }
+ 
++/* Synthetic data must be labeled, and live data must never be (guardrail: replayed or fake data
++ * is labeled on the page). */
++static void source_label(void)
++{
++    page_acc  a;
++    page_view v;
++    gt_record bad;
++    char      html[HTML_CAP];
++    char      json[HTML_CAP];
++
++    /* Nothing read yet: no source, no banner. */
++    page_acc_init(&a);
++    judge_ok(&a, NOW, &v);
++    CHECK(v.source == PAGE_SRC_NONE && v.synthetic == 0);
++    CHECK(page_render_json(json, sizeof json, &v) > 0);
++    CHECK(has(json, "\"source\":\"none\"") && has(json, "\"synthetic_records\":0"));
++    CHECK(page_render_html(html, sizeof html, &v) > 0 && !has(html, "SYNTHETIC DATA"));
++
++    /* Live records, even with every other flag set, are live: only the one bit counts. */
++    page_acc_init(&a);
++    add(&a, rec(NOW - 7000, 1, 700, 0));
++    add(&a, rec(NOW - 6000, 2, 700, (uint16_t)(GT_REC_SOIL_INVALID | GT_REC_SOIL_STUCK |
++                                              GT_REC_LIGHT_INVALID | GT_REC_LIGHT_BRIGHT |
++                                              GT_REC_TIME_UNSET | GT_REC_UNDERVOLT)));
++    judge_ok(&a, NOW, &v);
++    CHECK(a.synthetic == 0 && v.source == PAGE_SRC_LIVE && v.synthetic == 0);
++    CHECK(page_render_json(json, sizeof json, &v) > 0);
++    CHECK(has(json, "\"source\":\"live\"") && has(json, "\"synthetic_records\":0"));
++    CHECK(page_render_html(html, sizeof html, &v) > 0 && !has(html, "SYNTHETIC DATA"));
++
++    /* All synthetic. */
++    page_acc_init(&a);
++    add(&a, rec(NOW - 7000, 1, 700, GT_REC_SYNTHETIC));
++    add(&a, rec(NOW - 6000, 2, 700, GT_REC_SYNTHETIC | GT_REC_LIGHT_BRIGHT));
++    add(&a, rec(NOW - 5000, 3, 700, GT_REC_SYNTHETIC));
++    judge_ok(&a, NOW, &v);
++    CHECK(a.synthetic == 3 && v.source == PAGE_SRC_SYNTHETIC && v.synthetic == 3);
++    CHECK(page_render_json(json, sizeof json, &v) > 0 && json_balanced(json));
++    CHECK(has(json, "\"source\":\"synthetic\"") && has(json, "\"synthetic_records\":3"));
++    CHECK(page_render_html(html, sizeof html, &v) > 0);
++    CHECK(has(html, "SYNTHETIC DATA: 3 of 3 readings") && has(html, "not from the sensors"));
++
++    /* Labeling does not change the judgment of the same data. */
++    CHECK(v.state == PAGE_OK && v.reasons == 0 && v.soil_known && v.light_known);
++
++    /* Mixed: fake records followed by a live one. */
++    page_acc_init(&a);
++    add(&a, rec(NOW - 7000, 1, 700, GT_REC_SYNTHETIC));
++    add(&a, rec(NOW - 6000, 2, 700, 0));
++    add(&a, rec(NOW - 5000, 3, 700, 0));
++    judge_ok(&a, NOW, &v);
++    CHECK(v.source == PAGE_SRC_MIXED && v.synthetic == 1 && v.records == 3);
++    CHECK(page_render_json(json, sizeof json, &v) > 0);
++    CHECK(has(json, "\"source\":\"mixed\"") && has(json, "\"synthetic_records\":1"));
++    CHECK(page_render_html(html, sizeof html, &v) > 0);
++    CHECK(has(html, "SYNTHETIC DATA: 1 of 3 readings"));
++
++    /* A damaged record is not counted, whatever its flags say. */
++    page_acc_init(&a);
++    add(&a, rec(NOW - 5000, 1, 700, 0));
++    (void)memset(&bad, 0, sizeof bad);
++    bad.flags = GT_REC_SYNTHETIC;
++    CHECK(page_acc_visit(&bad, GT_STORE_REC_CORRUPT, &a) == 0);
++    judge_ok(&a, NOW, &v);
++    CHECK(a.synthetic == 0 && v.source == PAGE_SRC_LIVE);
++
++    /* The banner is plain text: no link, script or address for the no-network guard to object to. */
++    page_acc_init(&a);
++    add(&a, rec(NOW - 5000, 1, 700, GT_REC_SYNTHETIC));
++    judge_ok(&a, NOW, &v);
++    CHECK(page_render_html(html, sizeof html, &v) > 0);
++    CHECK(!has(html, "http://") && !has(html, "https://") && !has(html, "<script") &&
++          !has(html, "<a ") && !has(html, "<link"));
++}
++
+ static void names(void)
+ {
+     CHECK(strcmp(page_state_name(PAGE_OK), "ok") == 0);
+     CHECK(strcmp(page_state_name(PAGE_DEGRADED), "degraded") == 0);
+     CHECK(strcmp(page_state_name(PAGE_NO_DATA), "no_data") == 0);
++    CHECK(strcmp(page_source_name(PAGE_SRC_NONE), "none") == 0);
++    CHECK(strcmp(page_source_name(PAGE_SRC_LIVE), "live") == 0);
++    CHECK(strcmp(page_source_name(PAGE_SRC_SYNTHETIC), "synthetic") == 0);
++    CHECK(strcmp(page_source_name(PAGE_SRC_MIXED), "mixed") == 0);
+ }
+ 
+ int main(void)
+@@ -570,6 +649,7 @@ int main(void)
+     needs_water_states();
+     needs_water_unknown();
+     needs_water_on_a_degraded_page();
++    source_label();
+     names();
+     (void)puts("PASS");
+     return 0;
+diff --git a/tests/logcheck_test.c b/tests/logcheck_test.c
+index ee26c2e..f092707 100644
+--- a/tests/logcheck_test.c
++++ b/tests/logcheck_test.c
+@@ -263,6 +263,58 @@ static void test_clean_log(void)
+     CHECK(checker(e.root, args, out, sizeof out) == 0);
+     CHECK(strstr(out, "records=50 first_seq=1 last_seq=50 lost=0 corrupt=0") != NULL);
+     CHECK(strstr(out, "PASS") != NULL && strstr(out, "FAIL") == NULL);
++    CHECK(strstr(out, " synthetic=0\n") != NULL); /* records with no flag are not fake */
++    rm_tree(e.root);
++}
++
++/* The number after `key` in the checker's summary line. */
++static unsigned long long field(const char* out, const char* key)
++{
++    const char* p = strstr(out, key);
++
++    CHECK(p != NULL);
++    return strtoull(p + strlen(key), NULL, 10);
++}
++
++/* n records, the first n_synth of them marked GT_REC_SYNTHETIC. */
++static void build_flagged(const char* dir, uint32_t n, uint32_t n_synth)
++{
++    gt_store* s = NULL;
++
++    CHECK(store_recover(dir, &s, NULL) == 0);
++    for (uint32_t i = 0; i < n; i++) {
++        gt_record r;
++
++        memset(&r, 0, sizeof r);
++        r.ts_unix_ms = T_BASE + i * 1000u;
++        r.seq = i + 1;
++        r.soil_raw = 500;
++        r.flags = (i < n_synth) ? (uint16_t)(GT_REC_SYNTHETIC | GT_REC_LIGHT_BRIGHT) : 0u;
++        CHECK(store_append(s, &r) == 0);
++    }
++    store_close(s);
++}
++
++/* Fake records are counted in the summary line and are not a failure by themselves. */
++static void test_synthetic_count(void)
++{
++    env   e;
++    char  out[1024];
++    char* args[] = {"--dir", NULL, NULL};
++
++    env_init(&e);
++    args[1] = e.store;
++    build_flagged(e.store, 30, 12);
++    CHECK(checker(e.root, args, out, sizeof out) == 0);
++    CHECK(field(out, "records=") == 30 && field(out, "synthetic=") == 12);
++    CHECK(strstr(out, "PASS") != NULL && strstr(out, "FAIL") == NULL);
++    rm_tree(e.root);
++
++    env_init(&e);
++    args[1] = e.store;
++    build_flagged(e.store, 30, 30);
++    CHECK(checker(e.root, args, out, sizeof out) == 0);
++    CHECK(field(out, "records=") == 30 && field(out, "synthetic=") == 30);
+     rm_tree(e.root);
+ }
+ 
+@@ -482,6 +534,8 @@ static void test_end_to_end(void)
+     CHECK(reap(spawn(g_feeder, NULL, e.wlog, again)) == GT_EXIT_OK);
+     CHECK(checker(e.root, after_restart, out, sizeof out) == 0);
+     CHECK(strstr(out, "recovered=2") != NULL && strstr(out, "PASS") != NULL);
++    /* The real feeder wrote every record, and says so. */
++    CHECK(field(out, "records=") > 0 && field(out, "synthetic=") == field(out, "records="));
+ 
+     dp = opendir(e.store);
+     CHECK(dp != NULL);
+@@ -527,6 +581,7 @@ int main(int argc, char** argv)
+     g_check = argv[1];
+     g_feeder = argv[2];
+     test_clean_log();
++    test_synthetic_count();
+     test_empty_and_missing();
+     test_corruption();
+     test_seq_rules();
+diff --git a/tools/analyze.c b/tools/analyze.c
+index cd3b751..7f7326c 100644
+--- a/tools/analyze.c
++++ b/tools/analyze.c
+@@ -142,6 +142,11 @@ int main(int argc, char** argv)
+ 
+     format_time(from, a, sizeof a);
+     (void)printf("window: from %s, %llu days\n", a, (unsigned long long)days);
++    if (r.synthetic != 0u) {
++        (void)printf("WARNING: %llu of %llu records are SYNTHETIC (written by gt-feeder), "
++                     "not live sensor data\n",
++                     (unsigned long long)r.synthetic, (unsigned long long)r.records);
++    }
+     (void)printf("records: %llu used=%llu skipped_invalid=%llu skipped_stuck=%llu skipped_time_unset=%llu "
+                  "skipped_corrupt=%llu out_of_order=%llu\n",
+                  (unsigned long long)r.records, (unsigned long long)r.used,
+diff --git a/tools/csvexport.c b/tools/csvexport.c
+index d6fb04c..c7abe51 100644
+--- a/tools/csvexport.c
++++ b/tools/csvexport.c
+@@ -29,7 +29,7 @@
+ 
+ #define HEADER                                                                             \
+     "time_utc,unix_ms,seq,soil_raw,soil_valid,soil_stuck,light,light_valid,"               \
+-    "light_bright_ms,light_changes,clock_unset,undervoltage\n"
++    "light_bright_ms,light_changes,clock_unset,undervoltage,synthetic\n"
+ 
+ typedef struct export_state {
+     uint64_t rows;
+@@ -113,14 +113,15 @@ static int visit(const gt_record* rec, gt_store_rec_status status, void* ctx)
+         (void)fprintf(stderr, "csv: seq=%u time_utc not representable ts_unix_ms=%llu\n",
+                       (unsigned)rec->seq, (unsigned long long)rec->ts_unix_ms);
+     }
+-    if (printf("%s,%llu,%u,%u,%s,%s,%s,%s,%u,%u,%s,%s\n", when,
++    if (printf("%s,%llu,%u,%u,%s,%s,%s,%s,%u,%u,%s,%s,%s\n", when,
+                (unsigned long long)rec->ts_unix_ms, (unsigned)rec->seq, (unsigned)rec->soil_raw,
+                (rec->flags & GT_REC_SOIL_INVALID) != 0u ? "no" : "yes",
+                yes_no(rec->flags, GT_REC_SOIL_STUCK),
+                (rec->flags & GT_REC_LIGHT_BRIGHT) != 0u ? "bright" : "dark",
+                (rec->flags & GT_REC_LIGHT_INVALID) != 0u ? "no" : "yes",
+                (unsigned)rec->light_bright_ms, (unsigned)rec->light_edges,
+-               yes_no(rec->flags, GT_REC_TIME_UNSET), yes_no(rec->flags, GT_REC_UNDERVOLT)) < 0) {
++               yes_no(rec->flags, GT_REC_TIME_UNSET), yes_no(rec->flags, GT_REC_UNDERVOLT),
++               yes_no(rec->flags, GT_REC_SYNTHETIC)) < 0) {
+         (void)fprintf(stderr, "csv: write to stdout failed errno=%d (%s)\n", errno,
+                       strerror(errno));
+         st->write_failed = true;
+diff --git a/tools/feeder.c b/tools/feeder.c
+index 54ae153..105488f 100644
+--- a/tools/feeder.c
++++ b/tools/feeder.c
+@@ -92,7 +92,7 @@ static void make_record(uint32_t seq, uint64_t now_ms, gt_record* rec)
+     rec->ts_unix_ms = now_ms;
+     rec->seq = seq;
+     rec->soil_raw = (uint16_t)(300u + (seq * 37u) % 700u);
+-    rec->flags = (seq % 2u != 0u) ? GT_REC_LIGHT_BRIGHT : 0u;
++    rec->flags = GT_REC_SYNTHETIC | ((seq % 2u != 0u) ? GT_REC_LIGHT_BRIGHT : 0u);
+     rec->light_bright_ms = (uint16_t)((seq * 13u) % 60001u);
+     rec->light_edges = (uint16_t)(seq % 7u);
+ }
+@@ -269,8 +269,9 @@ int main(int argc, char** argv)
+         return GT_EXIT_FATAL;
+     }
+     seq = info.has_records ? info.last_seq + 1u : 1u;
+-    feeder_log("INFO", "start dir=%s rate=%llu resumed_seq=%u dropped_bytes=%llu", dir,
+-               (unsigned long long)rate, (unsigned)seq, (unsigned long long)info.dropped_bytes);
++    feeder_log("INFO", "start source=SYNTHETIC dir=%s rate=%llu resumed_seq=%u dropped_bytes=%llu",
++               dir, (unsigned long long)rate, (unsigned)seq,
++               (unsigned long long)info.dropped_bytes);
+ 
+     if (clock_gettime(CLOCK_MONOTONIC, &t0) != 0) {
+         feeder_log("ERROR", "clock_gettime failed errno=%d", errno);
+diff --git a/tools/logcheck.c b/tools/logcheck.c
+index d104e8c..6b9a95c 100644
+--- a/tools/logcheck.c
++++ b/tools/logcheck.c
+@@ -35,6 +35,7 @@
+ typedef struct seqcheck {
+     uint64_t records;
+     uint64_t corrupt;
++    uint64_t synthetic; /* readable records with GT_REC_SYNTHETIC; reported, never a failure */
+     uint64_t lost;      /* jumps that skipped exactly one number */
+     uint64_t big_gaps;  /* jumps that skipped more */
+     uint64_t backwards; /* repeated or smaller seq */
+@@ -126,6 +127,9 @@ static int visit(const gt_record* rec, gt_store_rec_status status, void* ctx)
+     }
+     c->last_seq = seq;
+     c->records++;
++    if ((rec->flags & GT_REC_SYNTHETIC) != 0u) {
++        c->synthetic++;
++    }
+     return 0;
+ }
+ 
+@@ -325,7 +329,7 @@ int main(int argc, char** argv)
+     if (have_acked) {
+         (void)printf(" acked=%u", (unsigned)acked);
+     }
+-    (void)printf("\n");
++    (void)printf(" synthetic=%llu\n", (unsigned long long)c.synthetic);
+     for (int i = 0; i < v.n; i++) {
+         (void)printf("FAIL %s\n", v.reasons[i]);
+     }

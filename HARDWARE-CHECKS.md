@@ -186,3 +186,26 @@ What this checks (#43): that `gt-interface --dry N` shows `needs_water` as `yes`
 
 - Real sensor data, the hub and the systemd unit (Andrew's, not tried on the Pi).
 - The dry threshold against real soil (S1, C4), and time-until-dry.
+
+## 2026-11-04: the synthetic-data label on the Pi
+
+**Status: not run on the Pi yet.** The label is built and passes `make test`, `make asan` and `make memcheck` on the development machine (see README "View the page"). Nothing below has been pasted from the Pi, so no result is claimed. The runs above (2026-11-02 and 2026-11-03) were made before the label existed, so their feeder records have no flag.
+
+What this checks: that records written by `gt-feeder` are labeled as synthetic on the Pi, on the page, in the JSON, in the feeder log, and in the tools. It does not check the sensors; with real sensors and the hub, the same page should say `"source":"live"` and show no banner, which is a separate run.
+
+### Steps (Duke runs these on the Pi)
+
+1. `git pull`, then `make test`. Paste the summary line.
+2. Terminal A: `build/tools/gt-feeder --dir /tmp/gt-label --rate 1`. Paste its first log line. Expected: it contains `source=SYNTHETIC`.
+3. Terminal B: `build/gt-interface --dir /tmp/gt-label`, then `curl -s localhost:8080/status.json`. Expected: `"source":"synthetic"` and `"synthetic_records"` equal to `window.records`.
+4. Open `http://greenthumb.local:8080/` on a phone. Expected: a dark "SYNTHETIC DATA" banner under the title. Say whether it is visible.
+5. Stop both (Ctrl-C). Run `build/tools/gt-analyze --dir /tmp/gt-label --now $(($(date +%s)*1000))`, `build/tools/gt-csv --dir /tmp/gt-label | head -3` and `build/tools/gt-logcheck --dir /tmp/gt-label`. Expected: a `WARNING: n of n records are SYNTHETIC` line, a last column `synthetic` with `yes`, and `synthetic=n` at the end of the summary.
+
+### Results
+
+None yet.
+
+### Not covered by this entry
+
+- Live data: a store written by the hub from the real sensors should read `"source":"live"` with no banner. That needs the hub on the Pi with the real sensors, which has not been run.
+- A directory that holds both fake and live records (`"source":"mixed"`) is covered by tests on the development machine only.

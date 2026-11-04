@@ -207,7 +207,7 @@ static int verify_fn(const gt_record* rec, gt_store_rec_status status, void* ctx
     CHECK(seq == v->n + 1); /* contiguous from 1 */
     CHECK(rec->ts_unix_ms >= v->last_ts);
     CHECK(rec->soil_raw == 300u + (seq * 37u) % 700u);
-    CHECK(rec->flags == ((seq % 2u != 0u) ? 0x0008u : 0u));
+    CHECK(rec->flags == (GT_REC_SYNTHETIC | ((seq % 2u != 0u) ? 0x0008u : 0u)));
     CHECK(rec->light_bright_ms == (seq * 13u) % 60001u);
     CHECK(rec->light_edges == seq % 7u);
     v->n++;
