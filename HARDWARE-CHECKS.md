@@ -146,3 +146,43 @@ Reported by Duke, not pasted: the page loaded on an iPhone in Safari, using the 
 - The stale and degraded cases on the Pi (the feeder stopped for more than 3 minutes, a missing store). They are covered by tests on the development machine and in `make test` on the Pi, but were not looked at on a phone.
 - A phone that is not on a private network, and an Android phone (`.local` names often do not resolve there).
 - A long run of the page. Only a few minutes were watched.
+
+## 2026-11-03: needs water on the LAN page on the Pi
+
+**Status: run on the Pi on 2026-11-03.** The `yes`, `no` and `unknown` states each showed as expected in `/status.json`, and `make test` passed on the Pi (30/30). The phone check is thin (see Results). The dry threshold itself is not checked.
+
+What this checks (#43): that `gt-interface --dry N` shows `needs_water` as `yes`, `no` and `unknown` on the Pi, on the fake feeder's data. It does not check the threshold itself. The dry threshold is not calibrated (S1 was not run) and the agreement with a real weight or finger check (C4) is not done, so a pass here says the logic and the page work, not that the flag is right for a plant.
+
+### Steps (Duke runs these on the Pi)
+
+1. `git pull`, then `make test`. Paste the summary line. This is the first Pi run of the hub, `child_logic`, `hub_proc` and `analysis_thirst` tests.
+2. Terminal A: `build/tools/gt-feeder --dir /tmp/gt-demo --rate 1`.
+3. Terminal B: `build/gt-interface --dir /tmp/gt-demo --dry 700`, then, from a third terminal, `curl -s localhost:8080/status.json`. Note `soil.raw` in the output. Expected: `"needs_water":"yes"` if `soil.raw` is at or below 700.
+4. Stop `gt-interface` (Ctrl-C), start it again as `build/gt-interface --dir /tmp/gt-demo --dry 400`, curl again. Expected: `"needs_water":"no"` if `soil.raw` is above 400.
+5. Stop the feeder (Ctrl-C), wait more than 3 minutes, curl again. Expected: `"needs_water":"unknown"` (the newest record is stale).
+6. Open the page on a phone in one of the states and say which.
+
+### Results
+
+- `make test` on the Pi: 100% passed, 0 failed out of 30 (total 85.08 s). Only the summary was pasted, so the per-test times are not recorded, and the paste did not name the host or the commit (recorded as the Pi run asked for in step 1). `make asan` and `make memcheck` were not run on the Pi.
+- `--dry 700`: passed. Pasted from the Pi (the daemon's command line was not pasted, but `dry_raw` is 700 in the output). Soil 537 is at or below 700, and the page shows `needs_water` `yes`:
+
+```
+{"state":"ok","reasons":[],"store_errno":0,"age_s":0,"soil":{"raw":537,"age_s":0},"light":{"bright":true,"bright_ms":1313,"age_s":0},"needs_water":"yes","dry_raw":700,"time_until_dry":null,"disk_free_mb":4031,"window":{"records":101,"soil_invalid":0,"soil_stuck":0,"light_invalid":0,"undervolt":0,"time_unset":0,"gap_events":0,"missing":0,"corrupt":0}}
+```
+- `--dry 400`: passed. Pasted from the Pi (the daemon's command line was not pasted, but `dry_raw` is 400 in the output). The same feeder directory kept growing (409 records, against 101 in the `--dry 700` run). Soil 733 is above 400, and the page shows `needs_water` `no`:
+
+```
+{"state":"ok","reasons":[],"store_errno":0,"age_s":0,"soil":{"raw":733,"age_s":0},"light":{"bright":true,"bright_ms":5317,"age_s":0},"needs_water":"no","dry_raw":400,"time_until_dry":null,"disk_free_mb":4031,"window":{"records":409,"soil_invalid":0,"soil_stuck":0,"light_invalid":0,"undervolt":0,"time_unset":0,"gap_events":0,"missing":0,"corrupt":0}}
+```
+- After the feeder stopped for over 3 minutes: passed. Pasted from the Pi, with `dry_raw` still 400. The newest record was 341 s old, the page state was `degraded` with the reason `stale`, and `needs_water` was `unknown`. The last soil value (705) is above 400 and would have read `no`, so it did not fall back to the old value. The record count is 465, 56 more than the 409 in the `--dry 400` run (probably the feeder running at 1 record a second until it was stopped; not checked).
+
+```
+{"state":"degraded","reasons":["stale"],"store_errno":0,"age_s":341,"soil":{"raw":705,"age_s":341},"light":{"bright":true,"bright_ms":6045,"age_s":341},"needs_water":"unknown","dry_raw":400,"time_until_dry":null,"disk_free_mb":4031,"window":{"records":465,"soil_invalid":0,"soil_stuck":0,"light_invalid":0,"undervolt":0,"time_unset":0,"gap_events":0,"missing":0,"corrupt":0}}
+```
+- Phone: Duke reported that the page on his phone says "degraded", while the feeder was stopped and the JSON above was `degraded` / `stale`. That matches. He did not report the needs-water text or the listed reason, and no screenshot was kept, so the phone check only confirms the degraded state, not how `unknown` is worded on the page. The `yes` and `no` states were not looked at on a phone.
+
+### Not covered by this entry
+
+- Real sensor data, the hub and the systemd unit (Andrew's, not tried on the Pi).
+- The dry threshold against real soil (S1, C4), and time-until-dry.
