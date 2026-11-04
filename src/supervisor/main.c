@@ -3,9 +3,11 @@
  * --hard seconds gets SIGTERM, and --grace seconds later SIGKILL (the same grace applies at
  * shutdown).  A child killed for silence is restarted even if it exits 0.  More than --max
  * restarts inside --window seconds is a crash loop: the child is marked DEGRADED and its restart
- * delay held at the cap.  An events.log file is not written yet.
+ * delay held at the cap.  Every --status seconds (default one hour) it logs one "status" line
+ * per child: alive, rss_kb, fds, restarts and faults.  An events.log file is not written yet.
  *
- * usage: gt-supervisor [--soft S] [--hard S] [--grace S] [--max N] [--window S] [CHILD_PATH...]
+ * usage: gt-supervisor [--soft S] [--hard S] [--grace S] [--max N] [--window S] [--status S]
+ *                      [CHILD_PATH...]
  *        defaults: the ipc.h limits and ./gt-hub ./gt-sensor-soil ./gt-sensor-light ./gt-interface
  *        gt-supervisor --version
  * Exit: 0 clean shutdown, 1 no child left to supervise, 2 bad arguments. */
@@ -23,6 +25,7 @@
 #include "child.h"
 #include "ipc.h"
 #include "ipc_io.h"
+#include "status.h"
 #include "sup_log.h"
 
 #define MAX_CHILDREN 4
@@ -106,6 +109,8 @@ static int run(child* ch, size_t n, const hb_limits* lim)
     struct pollfd pfd[1 + MAX_CHILDREN]; /* [0] signals, [1 + i] child i's control socket */
     bool          stopping = false;
     int           rc = GT_EXIT_FATAL;
+    int64_t       status_ms = (int64_t)lim->status_s * 1000;
+    int64_t       next_status = now_ms() + status_ms;
 
     if (sigemptyset(&want) != 0 || sigaddset(&want, SIGCHLD) != 0 ||
         sigaddset(&want, SIGTERM) != 0 || sigaddset(&want, SIGINT) != 0 ||
@@ -140,6 +145,9 @@ static int run(child* ch, size_t n, const hb_limits* lim)
             pfd[1 + i] = (struct pollfd){.fd = c->ctl_fd, .events = POLLIN};
             live += c->stopped ? 0 : 1;
         }
+        if (next < 0 || next_status < next) {
+            next = next_status;
+        }
         if (live == 0) {
             rc = stopping ? 0 : GT_EXIT_FATAL;
             log_event(stopping ? "INFO" : "ERROR", stopping ? "stopped" : "no_children_left");
@@ -168,6 +176,12 @@ static int run(child* ch, size_t n, const hb_limits* lim)
             }
             child_watch(&ch[i], now, lim);
         }
+        if (now >= next_status) {
+            for (size_t i = 0; i < n; i++) {
+                status_log(&ch[i], "/proc");
+            }
+            next_status += status_ms * ((now - next_status) / status_ms + 1); /* no catch-up burst */
+        }
     }
 
     for (size_t i = 0; i < n; i++) {
@@ -177,8 +191,8 @@ static int run(child* ch, size_t n, const hb_limits* lim)
     return rc;
 }
 
-/* Sets the limit named by `flag` (--soft, --hard, --grace, --max or --window) to the whole number
- * `val`, 1..3600; --max is 1..GT_RESTART_MAX. */
+/* Sets the limit named by `flag` (--soft, --hard, --grace, --max, --window or --status) to the
+ * whole number `val`, 1..3600; --max is 1..GT_RESTART_MAX. */
 static bool set_limit(hb_limits* lim, const char* flag, const char* val)
 {
     unsigned*     f = strcmp(flag, "--soft") == 0     ? &lim->soft_s
@@ -186,6 +200,7 @@ static bool set_limit(hb_limits* lim, const char* flag, const char* val)
                       : strcmp(flag, "--grace") == 0  ? &lim->grace_s
                       : strcmp(flag, "--max") == 0    ? &lim->restart_max
                       : strcmp(flag, "--window") == 0 ? &lim->window_s
+                      : strcmp(flag, "--status") == 0 ? &lim->status_s
                                                       : NULL;
     char*         end;
     unsigned long v = strtoul(val, &end, 10);
@@ -205,7 +220,7 @@ int main(int argc, char** argv)
     const char* const*       paths = defaults;
     size_t                   n = sizeof defaults / sizeof defaults[0];
     hb_limits                lim = {GT_HEARTBEAT_SOFT_S, GT_HEARTBEAT_HARD_S, GT_KILL_GRACE_S,
-                                    GT_RESTART_MAX, GT_RESTART_WINDOW_S};
+                                    GT_RESTART_MAX, GT_RESTART_WINDOW_S, GT_STATUS_INTERVAL_S};
     child                    ch[MAX_CHILDREN];
     int                      a = 1;
     bool                     ok = true;
@@ -222,7 +237,7 @@ int main(int argc, char** argv)
     }
     if (!ok || n > MAX_CHILDREN || (argc > a && argv[a][0] == '-') || lim.soft_s >= lim.hard_s) {
         (void)fprintf(stderr, "usage: %s [--soft S] [--hard S] [--grace S] [--max N] [--window S] "
-                      "[CHILD_PATH...] (at most %d)\n", argv[0], MAX_CHILDREN);
+                      "[--status S] [CHILD_PATH...] (at most %d)\n", argv[0], MAX_CHILDREN);
         return GT_EXIT_CONFIG;
     }
     for (size_t i = 0; i < n; i++) {

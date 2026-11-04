@@ -11,14 +11,16 @@
 
 /* The supervisor's limits, in seconds.  Heartbeats: silent for soft_s logs a warning, for hard_s
  * gets SIGTERM, and grace_s after that SIGKILL.  Restarts: more than restart_max of them inside
- * window_s is a crash loop, and a child that stays up for window_s is stable again.  The
- * defaults are in ipc.h. */
+ * window_s is a crash loop, and a child that stays up for window_s is stable again.  Status:
+ * one health line per child every status_s seconds (0 is not a valid setting for the
+ * supervisor; main always sets it).  The defaults are in ipc.h and status.h. */
 typedef struct hb_limits {
     unsigned soft_s;
     unsigned hard_s;
     unsigned grace_s;
     unsigned restart_max; /* at most GT_RESTART_MAX: that is how many restart times a child keeps */
     unsigned window_s;
+    unsigned status_s;
 } hb_limits;
 
 typedef struct child {
@@ -30,6 +32,7 @@ typedef struct child {
     int64_t     restart_at_ms;
     unsigned    backoff_s;
     unsigned    restarts;
+    unsigned    faults;  /* exits that were not a clean GT_EXIT_OK, outside shutdown */
     int64_t     recent[GT_RESTART_MAX + 1]; /* when the last restarts were scheduled */
     int64_t     started_ms; /* when it was last started */
     bool        degraded;   /* in a crash loop */

@@ -3,7 +3,7 @@
 
 ## Architecture
 For the architecture the system is one supervisor plus three worker processes, and analysis and the interface read the sotre on their own. No processes uses threads, because each one runs a single poll loop.
--**gt-supervisor** this starts the other processes, reads the exit codes and heartbeats, after that it restarts failed ones with backoff, and writes its own event log. it reads no sensors and stores no readings.
+-**gt-supervisor** this starts the other processes, reads the exit codes and heartbeats, after that it restarts failed ones with backoff, and writes its own event log. Once an hour (`--status S` changes the interval) it also logs one `status` line per child. it reads no sensors and stores no readings.
 --**gt-sensor-soil** reads the STEMMA soil over I2C (which is adress 0x36 once a minute and sends one soil message to the hub.
 --**gt-sensor-light** counts the bright/dark transitions on the LM393 DO pin (which is gpio17) and sends a summary message to the hub once a minute. 
 - **gt-hub is the only writer, once a minnute it builds one 24-byte record from the latest soil and the light messages and then appends it with 'store_append'.
@@ -40,7 +40,7 @@ so then the gap appears in the log. Since the store is append only, a crash lose
 ## Mechanism Mapping
 | Mechanism | Where it lives | How it is checked | Status |
 |---|---|---|---|
-| Multi-process isolation with a supervisor (mechanism E) | src/supervisor, src/ipc | tests/supervisor_test.sh: restart with backoff, no restart on a config exit, clean SIGTERM, no fd leak; `make memcheck` runs the supervisor under Valgrind | Supervisor restart, shutdown and heartbeat deadlines implemented; hub and sensor processes implemented (hub_process, soil_process, light_process); crash-loop DEGRADED implemented (child_logic, supervisor_behavior); the events.log file and orphan cleanup are next |
+| Multi-process isolation with a supervisor (mechanism E) | src/supervisor, src/ipc | tests/supervisor_test.sh: restart with backoff, no restart on a config exit, clean SIGTERM, no fd leak; `make memcheck` runs the supervisor under Valgrind | Supervisor restart, shutdown and heartbeat deadlines implemented; hub and sensor processes implemented (hub_process, soil_process, light_process); crash-loop DEGRADED implemented (child_logic, supervisor_behavior); hourly `status` line per child implemented (`status_logic` for the /proc reader and format, `child_logic` for the fault count, `supervisor_behavior` for the timer; the hour boundary itself has not been run on the Pi, and it has no record count); the events.log file and orphan cleanup are next |
 | Custom storage layer (mechanism D) | src/store | store_test, store_failures and store_error_paths (fault injection on every libc call), the kill -9 loop, and the log checker | Implemented |
 | Watchdog through heartbeats | src/supervisor, src/ipc | tests/supervisor_test.sh with short limits (`--soft 1 --hard 3 --grace 1`): a silent child is warned, sent SIGTERM and restarted even though it exits 0; a child that ignores SIGTERM is sent SIGKILL; a healthy child is left alone; shutdown does not wait for a stubborn child | Implemented: the sensors and the hub send heartbeats; the supervisor warns at 30 s of silence, sends SIGTERM at 60 s and SIGKILL 5 s later. Not yet run on the Pi |
 | Custom drivers | src/sensors | Userspace drivers over kernel interfaces (i2c-dev, GPIO character device), not a kernel module. The loops run in tests with fake drivers (soil_logic, light_logic, soil_process, light_process); the real drivers are checked on the Pi with raw sensor reads and the GPIO17 level | Sensor processes and drivers written; drivers checked on the Pi on 2026-11-02 (see HARDWARE-CHECKS.md) |
@@ -52,6 +52,10 @@ so then the gap appears in the log. Since the store is append only, a crash lose
 **How to read this table.** For each component: how it can fail, how we detect it, what the system does about it, and what the log shows. The "Verified by" column points to the test that proves the row (IDs from the evaluation plan). `NEW` means we still need to write that test. Every log line below is a **draft**: once we inject the failure for real, we replace it with the line the system actually printed.
  
 **Log line format:** `<ISO time> <LEVEL> <component> <event> key=value ...`
+
+**Hourly status line.** Every hour (`--status S`, 1 to 3600 s) the supervisor logs one line per child, running or not, so a slow leak or a quiet restart pattern shows up in `journalctl -u greenthumb` before a daemon dies:
+`2026-11-04T23:21:27Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=5120 fds=7 restarts=0 faults=0`
+`rss_kb` and `fds` come from `/proc/<pid>` and are `-1` when the child is not running. `faults` counts exits that were not a clean 0 (a signal, a non-zero code, or a kill for silence), not counting shutdown. **Not reported yet: a record count.** The supervisor has no record counter, and getting one needs a change to the frozen `ipc.h` contract (both owners) or a read of the store.
  
 Thresholds in [brackets] are our first guesses and will be set from measurements.
  
