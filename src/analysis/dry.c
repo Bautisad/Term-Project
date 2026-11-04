@@ -1,6 +1,7 @@
 #include "dry.h"
 
 #include <errno.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -15,6 +16,7 @@ void dry_params_default(dry_params* p)
     p->max_gap_ms = 6ull * 3600ull * 1000ull;
     p->min_r2 = 0.8;
     p->max_buckets = DRY_MAX_BUCKETS;
+    p->dry_raw = 565.0;
 }
 
 /* Written so that a NaN fails every comparison. */
@@ -23,7 +25,8 @@ static bool params_ok(const dry_params* p)
     return p->bucket_ms >= 1000u && p->rise_counts > 0.0 && p->settle_counts > 0.0 &&
            p->settle_counts < p->rise_counts && p->min_cycle_ms > 0u &&
            p->max_gap_ms >= p->bucket_ms && p->min_r2 >= 0.0 && p->min_r2 <= 1.0 &&
-           p->max_buckets >= 1u && p->max_buckets <= DRY_MAX_BUCKETS;
+           p->max_buckets >= 1u && p->max_buckets <= DRY_MAX_BUCKETS && isfinite(p->dry_raw) &&
+           p->dry_raw >= 0.0;
 }
 
 int dry_acc_init(dry_acc* a, const dry_params* p)
@@ -128,6 +131,12 @@ int dry_acc_visit(const gt_record* rec, gt_store_rec_status status, void* ctx)
     a->cur.sum += (double)rec->soil_raw;
     a->cur.t_sum += (double)(rec->ts_unix_ms - id * a->p.bucket_ms);
     a->cur.n++;
+    if ((rec->flags & GT_REC_LIGHT_INVALID) == 0u) { /* a bad light flag never counts as dark */
+        double bright = (double)rec->light_bright_ms;
+
+        a->cur.bright_ms += (bright > DRY_LIGHT_WINDOW_MS) ? DRY_LIGHT_WINDOW_MS : bright;
+        a->cur.light_n++;
+    }
     a->used++;
     return 0;
 }
@@ -176,6 +185,66 @@ static pt point(const dry_acc* a, size_t i)
     p.t = (double)(bk->id * a->p.bucket_ms) + bk->t_sum / (double)bk->n;
     p.y = bk->sum / (double)bk->n;
     return p;
+}
+
+/* Bright hours per 24 h over buckets first..last, from the records with a valid light reading
+ * (0 if there are none), and the share of those buckets' records that had one. */
+static void light_over(const dry_acc* a, size_t first, size_t last, double* h_per_day,
+                       double* coverage)
+{
+    double bright = 0.0;
+    double light_n = 0.0;
+    double n = 0.0;
+
+    for (size_t i = first; i <= last; i++) {
+        const dry_bucket* bk = (i < a->n) ? &a->b[i] : &a->cur;
+
+        bright += bk->bright_ms;
+        light_n += (double)bk->light_n;
+        n += (double)bk->n;
+    }
+    *h_per_day = (light_n > 0.0) ? 24.0 * bright / (light_n * DRY_LIGHT_WINDOW_MS) : 0.0;
+    *coverage = (n > 0.0) ? light_n / n : 0.0;
+}
+
+/* The C3 comparison needs the state DRY_EVAL_AHEAD_H hours before the cycle reaches dry_raw.
+ * Leaves the c->cross_ms / have_eval fields at 0 / false when the cycle never got there, was
+ * already dry when it began, or has no valid light before that moment. */
+static void find_eval(const dry_acc* a, size_t first, size_t last, dry_cycle* c)
+{
+    double start_t = point(a, first).t;
+    size_t cross = first;
+    size_t j = first;
+    double cross_t;
+    double eval_t;
+    double h;
+    double cov;
+
+    while (cross <= last && point(a, cross).y > a->p.dry_raw) {
+        cross++;
+    }
+    if (cross > last) {
+        return;
+    }
+    cross_t = point(a, cross).t;
+    c->cross_ms = (uint64_t)cross_t;
+    eval_t = cross_t - DRY_EVAL_AHEAD_H * MS_PER_H;
+    if (eval_t < start_t) {
+        return;
+    }
+    while (j < cross && point(a, j + 1u).t <= eval_t) {
+        j++;
+    }
+    if (eval_t - point(a, j).t > (double)a->p.max_gap_ms) {
+        return;
+    }
+    light_over(a, first, j, &h, &cov);
+    if (cov <= 0.0) {
+        return;
+    }
+    c->have_eval = true;
+    c->level_eval = point(a, j).y;
+    c->bright_eval = h;
 }
 
 /* Least-squares line through points first..last (x in hours), then the verdict. */
@@ -227,6 +296,9 @@ static void fit_cycle(const dry_acc* a, size_t first, size_t last, bool complete
         }
     }
 
+    light_over(a, first, last, &c->bright_h_per_day, &c->light_coverage);
+    find_eval(a, first, last, c);
+
     if (gap) {
         c->reject = DRY_REJ_GAP;
     } else if (pl.t - p0.t < (double)a->p.min_cycle_ms) {
@@ -262,6 +334,7 @@ void dry_analyze(const dry_acc* a, dry_result* out)
 
     (void)memset(out, 0, sizeof *out);
     out->buckets = n;
+    out->dry_raw = a->p.dry_raw;
     out->records = a->records;
     out->used = a->used;
     out->skipped_invalid = a->skipped_invalid;
