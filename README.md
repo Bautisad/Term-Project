@@ -1,6 +1,6 @@
 # Project Green Thumb
 
-A small device that watches one houseplant's soil moisture and light, so the owner knows when to water instead of guessing. A Raspberry Pi 5 reads a capacitive soil moisture sensor and a bright/dark light module, keeps weeks of history in its own crash-safe log, and will show a "needs water" state on a page served only to the local network.
+A small device that watches one houseplant's soil moisture and light, so the owner knows when to water instead of guessing. A Raspberry Pi 5 reads a capacitive soil moisture sensor and a bright/dark light module, keeps weeks of history in its own crash-safe log, and shows a "needs water" state on a page served only to the local network (against a dry threshold that is not calibrated yet).
 
 **Status:** hardware bring-up, the build system, the supervisor (restarts with backoff, heartbeat deadlines, crash-loop DEGRADED), the IPC layer, the two sensor processes and the hub (`gt-hub`, the only writer of the store) work in tests. The sensor drivers have been checked on the Pi (see [`HARDWARE-CHECKS.md`](HARDWARE-CHECKS.md)). The LAN page (`gt-interface`) runs on the Pi and loads on a phone, fed by a fake sensor feeder (see [View the page](#view-the-page)). The dry-down analysis (finding dry-downs and estimating the hours until the soil is dry) works in tests on synthetic data (see [Analyze the history](#analyze-the-history)). The hub has not yet run on the Pi with the real sensors, and the rest of the analysis is still being written (see [Not built yet](#not-built-yet)), so the whole device has not been run end to end yet. This README covers wiring the hardware, checking that it works, building and deploying what exists, and viewing the page. Run instructions for the whole device will be added when it runs.
 
@@ -134,7 +134,7 @@ Then open `http://greenthumb.local:8080/` on a phone or laptop on the same netwo
 - **Address and port:** with no flags it listens on every interface, port 8080. `--port N` and `--bind IPV4` change that.
 - **Who is served:** only private IPv4 addresses (127/8, 10/8, 172.16/12, 192.168/16 and 169.254/16). Anything else is closed without an answer.
 - **The store:** `--dir PATH` says where to read it (read only). The default, `/var/lib/greenthumb/store`, is where the hub is meant to write.
-- **What it shows:** the newest valid soil value and light state, how old they are, and a count of the last 24 hours of readings. "Needs water" and "time until dry" say "not enough data" until the analysis exists.
+- **What it shows:** the newest valid soil value and light state, how old they are, and a count of the last 24 hours of readings. "Needs water" is `yes`, `no` or `unknown`: `yes` when the newest good soil value is at or below the dry threshold (`--dry N`, default 565, **not calibrated**, see below), and `no` again only once it is 48 counts above it, so noise does not flip it back and forth. It says `unknown`, never `no`, when there is no good recent reading. "Time until dry" still says "not enough data"; it needs about four weeks of real history from the hub.
 - **When it says degraded:** it lists the reasons, for example no new reading for 3 minutes, a store it cannot read, invalid readings, an under-voltage event, a clock that is ahead, or low disk space. It never shows OK for a state it cannot judge.
 - **Started by the supervisor:** `gt-supervisor` starts `./gt-interface` with the hub and the sensors (with no `--dir` it reads `/var/lib/greenthumb/store`, where the hub writes); to run it by hand as above, use `--dir`. Other flags (`--heartbeat-ms`, `--refresh-ms`) are for the tests.
 
@@ -150,7 +150,7 @@ build/tools/gt-analyze --dir /var/lib/greenthumb/store
 - **When it holds back:** `insufficient_cycles` (fewer than 3 accepted finished dry-downs), `no_recent_data` (the newest good sample is more than 30 minutes old), `not_drying` (the soil was just watered) or `not_falling`.
 - **The dry threshold is a guess:** `--dry N` sets the raw soil value that counts as dry. The default, 565, is the "very dry soil" reading from our build. It is not calibrated, because the calibration test (S1) was not run, and the output says so.
 - **Other options:** `--days N` is how much history to read (default 28) and `--now MS` sets the clock, for replaying old data.
-- **Not yet tried on real data:** there is no hub, so no real history exists. It has only been run on synthetic data and on the fake feeder's data, where it correctly says there is not enough to predict.
+- **Not yet tried on real data:** the hub exists now, but it has not recorded a real history yet (that takes days of a plant drying out). It has only been run on synthetic data and on the fake feeder's data, where it correctly says there is not enough to predict.
 
 ## Troubleshooting
 
@@ -169,7 +169,7 @@ These are the parts still to come. The issue numbers are on the repository's iss
 - The whole device running on the Pi: the supervisor starting the hub and both sensors with the real sensors (`systemd/greenthumb.service` is written but not yet installed or tried on the Pi), then the 48-hour soak with a harness that measures the real processes (`tools/soakcheck.sh` still drives the feeder)
 - Supervisor: the `events.log` file, and killing orphaned children when it starts
 - Analysis: dry-down detection and time-until-dry (#27) is written and tested on synthetic data, and still has to be run on real recorded history; light-adjusted prediction (#26)
-- The "needs water" state on the LAN page (#43)
+- Calibrating the "needs water" state on the LAN page (#43): it is built and tested, but the dry threshold is a guess (test S1 was not run) and the check against 20 real weight or finger tests (C4) has not been done
 - Sensor calibration tests and crash-safety runs (#32, #29, #30, #31)
 
 ## More reading
