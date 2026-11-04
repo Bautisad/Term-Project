@@ -2,12 +2,36 @@
 
 A small device that watches one houseplant's soil moisture and light, so the owner knows when to water instead of guessing. A Raspberry Pi 5 reads a capacitive soil moisture sensor and a bright/dark light module, keeps weeks of history in its own crash-safe log, and shows a "needs water" state on a page served only to the local network (against a dry threshold that is not calibrated yet).
 
-**Status:** hardware bring-up, the build system, the supervisor (restarts with backoff, heartbeat deadlines, crash-loop DEGRADED), the IPC layer, the two sensor processes and the hub (`gt-hub`, the only writer of the store) work in tests. The sensor drivers have been checked on the Pi (see [`HARDWARE-CHECKS.md`](HARDWARE-CHECKS.md)). The LAN page (`gt-interface`) runs on the Pi and loads on a phone, fed by a fake sensor feeder (see [View the page](#view-the-page)). The dry-down analysis (finding dry-downs and estimating the hours until the soil is dry) works in tests on synthetic data (see [Analyze the history](#analyze-the-history)). The hub has not yet run on the Pi with the real sensors, and the rest of the analysis is still being written (see [Not built yet](#not-built-yet)), so the whole device has not been run end to end yet. This README covers wiring the hardware, checking that it works, building and deploying what exists, and viewing the page. Run instructions for the whole device will be added when it runs.
+**Status:** hardware bring-up, the build system, the supervisor (restarts with backoff, heartbeat deadlines, crash-loop DEGRADED), the IPC layer, the two sensor processes and the hub (`gt-hub`, the only writer of the store) work in tests. The sensor drivers have been checked on the Pi (see [`HARDWARE-CHECKS.md`](HARDWARE-CHECKS.md)). The LAN page (`gt-interface`) runs on the Pi and loads on a phone, fed by a fake sensor feeder (see [View the page](#view-the-page)). The dry-down analysis (finding dry-downs and estimating the hours until the soil is dry) works in tests on synthetic data (see [Analyze the history](#analyze-the-history)). The hub has not yet run on the Pi with the real sensors, and the rest of the analysis is still being written (see [Not built yet](#not-built-yet)), so the whole device has not been run end to end yet. This README covers wiring the hardware, checking that it works, building, deploying and starting the device, and viewing the page. The start steps in [Quick start](#quick-start) have not been tried on the Pi yet.
 
 ## Ground rules
 
 - The product makes no network calls except serving its own LAN page. No cloud services, no LLM APIs, no pretrained models. The analysis code is written by us. `make test` checks the network rule with `tools/nonetcheck.sh` (a scan of `src/` and of the built `gt-interface`) and with a run-time check that every socket the running page daemon holds is local or its own.
 - Each sensor runs in its own process under a supervisor, so one failing sensor does not take down the rest.
+
+## Quick start
+
+**Not tried yet.** These steps come from the code and the systemd unit; nothing here has run on the Pi.
+
+You need a Raspberry Pi 5 with the sensors wired, and a Linux machine (WSL works) to build on and deploy from. The Pi user must be able to use `sudo`.
+
+1. Wire the sensors: [Parts](#parts) and [Wiring](#wiring).
+2. Set up the Pi and check the hardware: [Set up the Pi](#set-up-the-pi) and [Check the hardware](#check-the-hardware). Do not go on until the soil sensor and the light module both read.
+3. On the Linux machine, install the build tools ([Build, test and deploy](#build-test-and-deploy)), clone this repository and run `make test`.
+4. Open `systemd/greenthumb.service` and replace `dbautista` with your Pi username in `User=`, `WorkingDirectory=` and `ExecStart=`. Skip this if your Pi user is `dbautista`.
+5. Set `PI` to your Pi login, then deploy, install the service and start it with one command:
+   ```
+   PI=<user>@<host>
+   make deploy PI=$PI && scp systemd/greenthumb.service $PI:/tmp/ && ssh -t $PI 'getent group i2c gpio && sudo cp /tmp/greenthumb.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable greenthumb && sudo systemctl restart greenthumb && systemctl status greenthumb --no-pager'
+   ```
+   For example `PI=pi@raspberrypi.local`. Each part runs only if the one before it worked, so a failed build never reaches the Pi.
+6. Check it: [Run on the Pi](#run-on-the-pi) lists what you should see. Then open `http://<host>:8080/` on a phone or laptop on the same network.
+
+After a code change, redeploy and restart without reinstalling the service:
+
+```
+make deploy PI=$PI && ssh -t $PI 'sudo systemctl restart greenthumb && systemctl status greenthumb --no-pager'
+```
 
 ## Parts
 
@@ -106,13 +130,17 @@ Today this builds `gt-supervisor`, `gt-hub`, `gt-sensor-soil`, `gt-sensor-light`
 
 **Not tried yet.** These steps come from the code and the systemd unit; nothing here has run on the Pi. Replace the "expect" lines with real output once someone has run it.
 
-1. Deploy from your Linux machine: `make deploy PI=dbautista@greenthumb.local`. The binaries land in `~/greenthumb/bin`.
+[Quick start](#quick-start) does steps 1 to 3 below in one command. Here is what that command does, one step at a time:
+
+1. Deploy from your Linux machine: `make deploy PI=<user>@<host>`. The binaries land in `~/greenthumb/bin` on the Pi. This copies only the binaries, not the service file.
 2. On the Pi, check the hardware first ([Check the hardware](#check-the-hardware)), then check the groups the unit needs: `getent group i2c gpio` must print both lines, or systemd refuses to start it.
-3. Copy `systemd/greenthumb.service` to the Pi and install it. It names the user `dbautista` and `/home/dbautista/greenthumb/bin`; edit those if you deployed elsewhere.
+3. Copy `systemd/greenthumb.service` from the repository to the Pi and install it. It names the user `dbautista` and `/home/dbautista/greenthumb/bin`; edit those if your Pi user or deploy path is different. `restart` is used instead of `enable --now` so a service that is already running picks up new binaries.
    ```
-   sudo cp greenthumb.service /etc/systemd/system/
+   scp systemd/greenthumb.service <user>@<host>:/tmp/
+   sudo cp /tmp/greenthumb.service /etc/systemd/system/
    sudo systemctl daemon-reload
-   sudo systemctl enable --now greenthumb
+   sudo systemctl enable greenthumb
+   sudo systemctl restart greenthumb
    ```
 4. Check it. Expect `systemctl status greenthumb` to say `active (running)`, `journalctl -u greenthumb` to show `start child=` for `gt-hub`, `gt-sensor-soil`, `gt-sensor-light` and `gt-interface` and then `state=running` for each, `/run/greenthumb/hub.sock` to exist, `curl -s localhost:8080/status.json` to answer, and `/var/lib/greenthumb/store` to hold a segment file that grows by one record a minute.
 5. Break something. `sudo pkill -9 gt-hub`: expect `died signal=9` then `restart=1 delay=1s` in the journal, and a gap in the sequence numbers where the hub was down. Unplug the soil sensor: expect INVALID soil readings, and `giving_up` after five failed cycles.
