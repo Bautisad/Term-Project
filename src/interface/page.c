@@ -91,6 +91,9 @@ int page_acc_visit(const gt_record* rec, gt_store_rec_status status, void* ctx)
     if ((rec->flags & GT_REC_TIME_UNSET) != 0) {
         a->time_unset++;
     }
+    if ((rec->flags & GT_REC_SYNTHETIC) != 0) {
+        a->synthetic++;
+    }
     return 0;
 }
 
@@ -117,6 +120,16 @@ void page_judge(const page_input* in, page_view* v)
     v->time_unset = a->time_unset;
     v->gap_events = a->gap_events;
     v->missing = a->missing;
+    v->synthetic = a->synthetic;
+    if (a->records == 0) {
+        v->source = PAGE_SRC_NONE;
+    } else if (a->synthetic == 0) {
+        v->source = PAGE_SRC_LIVE;
+    } else if (a->synthetic >= a->records) {
+        v->source = PAGE_SRC_SYNTHETIC;
+    } else {
+        v->source = PAGE_SRC_MIXED;
+    }
 
     if (in->store_errno != 0) {
         r |= PAGE_R_STORE_UNREADABLE;
@@ -201,6 +214,21 @@ const char* page_state_name(page_state s)
         break;
     }
     return "no_data";
+}
+
+const char* page_source_name(page_source s)
+{
+    switch (s) {
+    case PAGE_SRC_LIVE:
+        return "live";
+    case PAGE_SRC_SYNTHETIC:
+        return "synthetic";
+    case PAGE_SRC_MIXED:
+        return "mixed";
+    case PAGE_SRC_NONE:
+        break;
+    }
+    return "none";
 }
 
 /* A bounded writer: once anything does not fit, bad stays set and nothing more is written. */
@@ -296,7 +324,13 @@ int page_render_html(char* buf, size_t cap, const page_view* v)
             ".state{padding:.5rem .75rem;border-radius:.4rem;font-weight:bold}"
             ".ok{background:#d8f0d8}.degraded{background:#f6d6d6}.no_data{background:#e6e6e6}"
             ".needs{background:#f6e0a8;color:#5a3a00}"
+            ".fake{background:#222;color:#fff;padding:.5rem .75rem;border-radius:.4rem}"
             "</style></head><body>\n<h1>Green Thumb</h1>\n");
+    if (v->source == PAGE_SRC_SYNTHETIC || v->source == PAGE_SRC_MIXED) {
+        put(&o, "<p class=\"fake\">SYNTHETIC DATA: %llu of %llu readings in this window came from "
+                "the test feeder (gt-feeder), not from the sensors. Do not treat them as live.</p>\n",
+            (unsigned long long)v->synthetic, (unsigned long long)v->records);
+    }
     put(&o, "<p class=\"state %s\">%s</p>\n", page_state_name(v->state), state_title(v->state));
     if (v->reasons != 0) {
         put(&o, "<ul>\n");
@@ -379,7 +413,9 @@ int page_render_json(char* buf, size_t cap, const page_view* v)
     if (cap == 0) {
         return -1;
     }
-    put(&o, "{\"state\":\"%s\",\"reasons\":[", page_state_name(v->state));
+    put(&o, "{\"state\":\"%s\",\"source\":\"%s\",\"synthetic_records\":%llu,\"reasons\":[",
+        page_state_name(v->state), page_source_name(v->source),
+        (unsigned long long)v->synthetic);
     for (size_t i = 0; i < N_REASONS; i++) {
         if ((v->reasons & REASONS[i].bit) != 0) {
             put(&o, "%s\"%s\"", first ? "" : ",", REASONS[i].id);

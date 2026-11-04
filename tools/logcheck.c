@@ -35,6 +35,7 @@
 typedef struct seqcheck {
     uint64_t records;
     uint64_t corrupt;
+    uint64_t synthetic; /* readable records with GT_REC_SYNTHETIC; reported, never a failure */
     uint64_t lost;      /* jumps that skipped exactly one number */
     uint64_t big_gaps;  /* jumps that skipped more */
     uint64_t backwards; /* repeated or smaller seq */
@@ -126,6 +127,9 @@ static int visit(const gt_record* rec, gt_store_rec_status status, void* ctx)
     }
     c->last_seq = seq;
     c->records++;
+    if ((rec->flags & GT_REC_SYNTHETIC) != 0u) {
+        c->synthetic++;
+    }
     return 0;
 }
 
@@ -325,7 +329,7 @@ int main(int argc, char** argv)
     if (have_acked) {
         (void)printf(" acked=%u", (unsigned)acked);
     }
-    (void)printf("\n");
+    (void)printf(" synthetic=%llu\n", (unsigned long long)c.synthetic);
     for (int i = 0; i < v.n; i++) {
         (void)printf("FAIL %s\n", v.reasons[i]);
     }

@@ -670,6 +670,7 @@ static void full_run(const char* tmp)
     /* No store yet: the daemon stays up, the page and the heartbeat both say so. */
     CHECK(get_status(port));
     CHECK(strstr(body(), "\"state\":\"degraded\"") != NULL && strstr(body(), "store_unreadable") != NULL);
+    CHECK(strstr(body(), "\"source\":\"none\"") != NULL); /* no store, so no source to name */
     expect_hb_state(sv[0], pid, GT_CHILD_DEGRADED, 20);
 
     /* The store appears (a real feeder writing five records a second) and the page follows it,
@@ -682,6 +683,13 @@ static void full_run(const char* tmp)
     feeder = spawn(g_feeder, fargs, flog, -1, -1);
     n1 = wait_records(port, 1);
     CHECK(strstr(body(), "\"soil\":{") != NULL);
+    /* Everything the real feeder wrote is labeled synthetic: in its own log, in the JSON and on
+     * the page. */
+    CHECK(log_has(flog, "source=SYNTHETIC"));
+    CHECK(strstr(body(), "\"source\":\"synthetic\"") != NULL);
+    CHECK(json_u64("\"synthetic_records\":") == json_u64("\"records\":"));
+    get(port, "GET / HTTP/1.1\r\n\r\n");
+    CHECK(status_of() == 200 && strstr(body(), "SYNTHETIC DATA:") != NULL);
     n2 = wait_records(port, n1 + 3);
     CHECK(n2 > n1);
     (void)get_status(port); /* keep the heartbeat state fresh: a request is what looks at the store */

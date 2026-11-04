@@ -23,6 +23,12 @@ if(UNIX AND TARGET gt_supervisor_core)
   target_link_libraries(child_test PRIVATE gt_supervisor_core)
   add_test(NAME child_logic COMMAND child_test)
   set_tests_properties(child_logic PROPERTIES TIMEOUT 30)
+
+  # The status line: /proc reader against a fake proc tree and /proc/self, and the line format.
+  add_executable(status_test status_test.c)
+  target_link_libraries(status_test PRIVATE gt_supervisor_core)
+  add_test(NAME status_logic COMMAND status_test)
+  set_tests_properties(status_logic PROPERTIES TIMEOUT 30)
 endif()
 
 # IPC send/receive: round trips, malformed messages, EOF, listening socket.

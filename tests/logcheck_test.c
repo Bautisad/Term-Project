@@ -263,6 +263,58 @@ static void test_clean_log(void)
     CHECK(checker(e.root, args, out, sizeof out) == 0);
     CHECK(strstr(out, "records=50 first_seq=1 last_seq=50 lost=0 corrupt=0") != NULL);
     CHECK(strstr(out, "PASS") != NULL && strstr(out, "FAIL") == NULL);
+    CHECK(strstr(out, " synthetic=0\n") != NULL); /* records with no flag are not fake */
+    rm_tree(e.root);
+}
+
+/* The number after `key` in the checker's summary line. */
+static unsigned long long field(const char* out, const char* key)
+{
+    const char* p = strstr(out, key);
+
+    CHECK(p != NULL);
+    return strtoull(p + strlen(key), NULL, 10);
+}
+
+/* n records, the first n_synth of them marked GT_REC_SYNTHETIC. */
+static void build_flagged(const char* dir, uint32_t n, uint32_t n_synth)
+{
+    gt_store* s = NULL;
+
+    CHECK(store_recover(dir, &s, NULL) == 0);
+    for (uint32_t i = 0; i < n; i++) {
+        gt_record r;
+
+        memset(&r, 0, sizeof r);
+        r.ts_unix_ms = T_BASE + i * 1000u;
+        r.seq = i + 1;
+        r.soil_raw = 500;
+        r.flags = (i < n_synth) ? (uint16_t)(GT_REC_SYNTHETIC | GT_REC_LIGHT_BRIGHT) : 0u;
+        CHECK(store_append(s, &r) == 0);
+    }
+    store_close(s);
+}
+
+/* Fake records are counted in the summary line and are not a failure by themselves. */
+static void test_synthetic_count(void)
+{
+    env   e;
+    char  out[1024];
+    char* args[] = {"--dir", NULL, NULL};
+
+    env_init(&e);
+    args[1] = e.store;
+    build_flagged(e.store, 30, 12);
+    CHECK(checker(e.root, args, out, sizeof out) == 0);
+    CHECK(field(out, "records=") == 30 && field(out, "synthetic=") == 12);
+    CHECK(strstr(out, "PASS") != NULL && strstr(out, "FAIL") == NULL);
+    rm_tree(e.root);
+
+    env_init(&e);
+    args[1] = e.store;
+    build_flagged(e.store, 30, 30);
+    CHECK(checker(e.root, args, out, sizeof out) == 0);
+    CHECK(field(out, "records=") == 30 && field(out, "synthetic=") == 30);
     rm_tree(e.root);
 }
 
@@ -482,6 +534,8 @@ static void test_end_to_end(void)
     CHECK(reap(spawn(g_feeder, NULL, e.wlog, again)) == GT_EXIT_OK);
     CHECK(checker(e.root, after_restart, out, sizeof out) == 0);
     CHECK(strstr(out, "recovered=2") != NULL && strstr(out, "PASS") != NULL);
+    /* The real feeder wrote every record, and says so. */
+    CHECK(field(out, "records=") > 0 && field(out, "synthetic=") == field(out, "records="));
 
     dp = opendir(e.store);
     CHECK(dp != NULL);
@@ -527,6 +581,7 @@ int main(int argc, char** argv)
     g_check = argv[1];
     g_feeder = argv[2];
     test_clean_log();
+    test_synthetic_count();
     test_empty_and_missing();
     test_corruption();
     test_seq_rules();

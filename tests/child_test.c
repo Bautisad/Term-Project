@@ -14,7 +14,7 @@
         }                                                                       \
     } while (0)
 
-static const hb_limits LIM = {30, 60, 5, GT_RESTART_MAX, 300};
+static const hb_limits LIM = {30, 60, 5, GT_RESTART_MAX, 300, 3600};
 
 /* A fresh child with GT_RESTART_MAX restarts scheduled: the first at t=0, the rest 1 s apart. */
 static void worn(child* c)
@@ -100,6 +100,43 @@ static void recovers(void)
     CHECK(!c.degraded && c.restart_at_ms - 310500 == GT_BACKOFF_MIN_S * 1000);
 }
 
+/* A fault is an exit that was not a clean 0: a signal, a non-zero code, or a kill for silence.
+ * Nothing counts while the supervisor is stopping.  Wait statuses are built by hand:
+ * code << 8 for an exit, the bare signal number for a death by signal. */
+static void counts_faults(void)
+{
+    child c;
+
+    child_init(&c, "/x/gt-hub");
+    c.pid = 1;
+    child_exited(&c, 0, true, 0, &LIM); /* stopping: exit 0 */
+    CHECK(c.faults == 0);
+
+    child_init(&c, "/x/gt-hub");
+    c.pid = 1;
+    child_exited(&c, 0, false, 0, &LIM); /* clean exit 0 */
+    CHECK(c.faults == 0 && c.stopped);
+
+    child_init(&c, "/x/gt-hub");
+    c.pid = 1;
+    child_exited(&c, 1 << 8, false, 0, &LIM); /* exit 1 */
+    CHECK(c.faults == 1);
+    c.pid = 1;
+    child_exited(&c, 11, false, 1000, &LIM); /* SIGSEGV */
+    CHECK(c.faults == 2);
+
+    child_init(&c, "/x/gt-hub");
+    c.pid = 1;
+    c.hung = true;
+    child_exited(&c, 0, false, 0, &LIM); /* killed for silence, then exit 0 */
+    CHECK(c.faults == 1);
+
+    child_init(&c, "/x/gt-hub");
+    c.pid = 1;
+    child_exited(&c, 15, true, 0, &LIM); /* SIGTERM at shutdown */
+    CHECK(c.faults == 0);
+}
+
 int main(void)
 {
     trips_after_max();
@@ -107,5 +144,6 @@ int main(void)
     slow_trickle();
     own_max();
     recovers();
+    counts_faults();
     return 0;
 }

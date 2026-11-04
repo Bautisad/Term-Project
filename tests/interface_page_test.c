@@ -548,11 +548,90 @@ static void needs_water_on_a_degraded_page(void)
     water_is(&v, THIRST_NEEDS_WATER, "yes");
 }
 
+/* Synthetic data must be labeled, and live data must never be (guardrail: replayed or fake data
+ * is labeled on the page). */
+static void source_label(void)
+{
+    page_acc  a;
+    page_view v;
+    gt_record bad;
+    char      html[HTML_CAP];
+    char      json[HTML_CAP];
+
+    /* Nothing read yet: no source, no banner. */
+    page_acc_init(&a);
+    judge_ok(&a, NOW, &v);
+    CHECK(v.source == PAGE_SRC_NONE && v.synthetic == 0);
+    CHECK(page_render_json(json, sizeof json, &v) > 0);
+    CHECK(has(json, "\"source\":\"none\"") && has(json, "\"synthetic_records\":0"));
+    CHECK(page_render_html(html, sizeof html, &v) > 0 && !has(html, "SYNTHETIC DATA"));
+
+    /* Live records, even with every other flag set, are live: only the one bit counts. */
+    page_acc_init(&a);
+    add(&a, rec(NOW - 7000, 1, 700, 0));
+    add(&a, rec(NOW - 6000, 2, 700, (uint16_t)(GT_REC_SOIL_INVALID | GT_REC_SOIL_STUCK |
+                                              GT_REC_LIGHT_INVALID | GT_REC_LIGHT_BRIGHT |
+                                              GT_REC_TIME_UNSET | GT_REC_UNDERVOLT)));
+    judge_ok(&a, NOW, &v);
+    CHECK(a.synthetic == 0 && v.source == PAGE_SRC_LIVE && v.synthetic == 0);
+    CHECK(page_render_json(json, sizeof json, &v) > 0);
+    CHECK(has(json, "\"source\":\"live\"") && has(json, "\"synthetic_records\":0"));
+    CHECK(page_render_html(html, sizeof html, &v) > 0 && !has(html, "SYNTHETIC DATA"));
+
+    /* All synthetic. */
+    page_acc_init(&a);
+    add(&a, rec(NOW - 7000, 1, 700, GT_REC_SYNTHETIC));
+    add(&a, rec(NOW - 6000, 2, 700, GT_REC_SYNTHETIC | GT_REC_LIGHT_BRIGHT));
+    add(&a, rec(NOW - 5000, 3, 700, GT_REC_SYNTHETIC));
+    judge_ok(&a, NOW, &v);
+    CHECK(a.synthetic == 3 && v.source == PAGE_SRC_SYNTHETIC && v.synthetic == 3);
+    CHECK(page_render_json(json, sizeof json, &v) > 0 && json_balanced(json));
+    CHECK(has(json, "\"source\":\"synthetic\"") && has(json, "\"synthetic_records\":3"));
+    CHECK(page_render_html(html, sizeof html, &v) > 0);
+    CHECK(has(html, "SYNTHETIC DATA: 3 of 3 readings") && has(html, "not from the sensors"));
+
+    /* Labeling does not change the judgment of the same data. */
+    CHECK(v.state == PAGE_OK && v.reasons == 0 && v.soil_known && v.light_known);
+
+    /* Mixed: fake records followed by a live one. */
+    page_acc_init(&a);
+    add(&a, rec(NOW - 7000, 1, 700, GT_REC_SYNTHETIC));
+    add(&a, rec(NOW - 6000, 2, 700, 0));
+    add(&a, rec(NOW - 5000, 3, 700, 0));
+    judge_ok(&a, NOW, &v);
+    CHECK(v.source == PAGE_SRC_MIXED && v.synthetic == 1 && v.records == 3);
+    CHECK(page_render_json(json, sizeof json, &v) > 0);
+    CHECK(has(json, "\"source\":\"mixed\"") && has(json, "\"synthetic_records\":1"));
+    CHECK(page_render_html(html, sizeof html, &v) > 0);
+    CHECK(has(html, "SYNTHETIC DATA: 1 of 3 readings"));
+
+    /* A damaged record is not counted, whatever its flags say. */
+    page_acc_init(&a);
+    add(&a, rec(NOW - 5000, 1, 700, 0));
+    (void)memset(&bad, 0, sizeof bad);
+    bad.flags = GT_REC_SYNTHETIC;
+    CHECK(page_acc_visit(&bad, GT_STORE_REC_CORRUPT, &a) == 0);
+    judge_ok(&a, NOW, &v);
+    CHECK(a.synthetic == 0 && v.source == PAGE_SRC_LIVE);
+
+    /* The banner is plain text: no link, script or address for the no-network guard to object to. */
+    page_acc_init(&a);
+    add(&a, rec(NOW - 5000, 1, 700, GT_REC_SYNTHETIC));
+    judge_ok(&a, NOW, &v);
+    CHECK(page_render_html(html, sizeof html, &v) > 0);
+    CHECK(!has(html, "http://") && !has(html, "https://") && !has(html, "<script") &&
+          !has(html, "<a ") && !has(html, "<link"));
+}
+
 static void names(void)
 {
     CHECK(strcmp(page_state_name(PAGE_OK), "ok") == 0);
     CHECK(strcmp(page_state_name(PAGE_DEGRADED), "degraded") == 0);
     CHECK(strcmp(page_state_name(PAGE_NO_DATA), "no_data") == 0);
+    CHECK(strcmp(page_source_name(PAGE_SRC_NONE), "none") == 0);
+    CHECK(strcmp(page_source_name(PAGE_SRC_LIVE), "live") == 0);
+    CHECK(strcmp(page_source_name(PAGE_SRC_SYNTHETIC), "synthetic") == 0);
+    CHECK(strcmp(page_source_name(PAGE_SRC_MIXED), "mixed") == 0);
 }
 
 int main(void)
@@ -570,6 +649,7 @@ int main(void)
     needs_water_states();
     needs_water_unknown();
     needs_water_on_a_degraded_page();
+    source_label();
     names();
     (void)puts("PASS");
     return 0;

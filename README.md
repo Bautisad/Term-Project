@@ -162,8 +162,9 @@ build/tools/gt-feeder --dir /tmp/gt-demo --rate 1
 build/gt-interface --dir /tmp/gt-demo
 ```
 
-Then open `http://greenthumb.local:8080/` on a phone or laptop on the same network (we tried this on an iPhone in Safari). `curl -s localhost:8080/status.json` on the Pi shows the JSON. The values are the feeder's made-up numbers, not sensor readings.
+Then open `http://greenthumb.local:8080/` on a phone or laptop on the same network (we tried this on an iPhone in Safari). `curl -s localhost:8080/status.json` on the Pi shows the JSON. The values are the feeder's made-up numbers, not sensor readings, and the page says so (next list).
 
+- **Fake data is labeled:** every record `gt-feeder` writes carries the `SYNTHETIC` flag (`include/record.h`), and the hub never sets it. The page shows a dark "SYNTHETIC DATA: n of m readings..." banner when any reading in the last 24 hours is flagged, and `/status.json` has `"source"` (`none`, `live`, `synthetic` or `mixed`) and `"synthetic_records"`. The feeder logs `start source=SYNTHETIC`. `gt-analyze` prints a `WARNING: n of m records are SYNTHETIC` line, `gt-csv` has a last `synthetic` column (`yes` or `no`), and `gt-logcheck` ends its summary with `synthetic=N`. The label never changes a judgment: flagged records are still analyzed, shown and checked. Not yet checked on the Pi (see `HARDWARE-CHECKS.md`).
 - **Address and port:** with no flags it listens on every interface, port 8080. `--port N` and `--bind IPV4` change that.
 - **Who is served:** only private IPv4 addresses (127/8, 10/8, 172.16/12, 192.168/16 and 169.254/16). Anything else is closed without an answer.
 - **The store:** `--dir PATH` says where to read it (read only). The default, `/var/lib/greenthumb/store`, is where the hub is meant to write.

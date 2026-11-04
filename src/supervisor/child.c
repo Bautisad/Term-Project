@@ -175,6 +175,7 @@ int64_t child_next_event(const child* c, const hb_limits* l)
 void child_exited(child* c, int status, bool stopping, int64_t now, const hb_limits* l)
 {
     bool restart = true;
+    bool fault = c->hung;
 
     if (WIFEXITED(status)) {
         int code = WEXITSTATUS(status);
@@ -182,9 +183,14 @@ void child_exited(child* c, int status, bool stopping, int64_t now, const hb_lim
         log_event(code == GT_EXIT_OK ? "INFO" : "ERROR", "child=%s pid=%d exited code=%d",
                   c->name, (int)c->pid, code);
         restart = c->hung || (code != GT_EXIT_OK && code != GT_EXIT_CONFIG);
+        fault = fault || code != GT_EXIT_OK;
     } else if (WIFSIGNALED(status)) {
         log_event("ERROR", "child=%s pid=%d died signal=%d", c->name, (int)c->pid,
                   WTERMSIG(status));
+        fault = true;
+    }
+    if (fault && !stopping) {
+        c->faults++;
     }
     c->pid = 0;
     close_fd(c->ctl_fd);

@@ -32,6 +32,8 @@
 #define GT_REC_LIGHT_BRIGHT  0x0008u /* level at the end of the cycle (1 = bright) */
 #define GT_REC_TIME_UNSET    0x0010u /* wall clock earlier than the last record or build time */
 #define GT_REC_UNDERVOLT     0x0020u /* Pi reported under-voltage during the cycle */
+#define GT_REC_SYNTHETIC     0x0040u /* written by gt-feeder or another fake source, never by a
+                                      * sensor: readers must label the data as not live */
 
 typedef struct gt_record {
     uint64_t ts_unix_ms;

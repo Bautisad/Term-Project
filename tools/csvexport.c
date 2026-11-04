@@ -29,7 +29,7 @@
 
 #define HEADER                                                                             \
     "time_utc,unix_ms,seq,soil_raw,soil_valid,soil_stuck,light,light_valid,"               \
-    "light_bright_ms,light_changes,clock_unset,undervoltage\n"
+    "light_bright_ms,light_changes,clock_unset,undervoltage,synthetic\n"
 
 typedef struct export_state {
     uint64_t rows;
@@ -113,14 +113,15 @@ static int visit(const gt_record* rec, gt_store_rec_status status, void* ctx)
         (void)fprintf(stderr, "csv: seq=%u time_utc not representable ts_unix_ms=%llu\n",
                       (unsigned)rec->seq, (unsigned long long)rec->ts_unix_ms);
     }
-    if (printf("%s,%llu,%u,%u,%s,%s,%s,%s,%u,%u,%s,%s\n", when,
+    if (printf("%s,%llu,%u,%u,%s,%s,%s,%s,%u,%u,%s,%s,%s\n", when,
                (unsigned long long)rec->ts_unix_ms, (unsigned)rec->seq, (unsigned)rec->soil_raw,
                (rec->flags & GT_REC_SOIL_INVALID) != 0u ? "no" : "yes",
                yes_no(rec->flags, GT_REC_SOIL_STUCK),
                (rec->flags & GT_REC_LIGHT_BRIGHT) != 0u ? "bright" : "dark",
                (rec->flags & GT_REC_LIGHT_INVALID) != 0u ? "no" : "yes",
                (unsigned)rec->light_bright_ms, (unsigned)rec->light_edges,
-               yes_no(rec->flags, GT_REC_TIME_UNSET), yes_no(rec->flags, GT_REC_UNDERVOLT)) < 0) {
+               yes_no(rec->flags, GT_REC_TIME_UNSET), yes_no(rec->flags, GT_REC_UNDERVOLT),
+               yes_no(rec->flags, GT_REC_SYNTHETIC)) < 0) {
         (void)fprintf(stderr, "csv: write to stdout failed errno=%d (%s)\n", errno,
                       strerror(errno));
         st->write_failed = true;

@@ -35,6 +35,7 @@ typedef struct page_acc {
     uint64_t  light_invalid;
     uint64_t  undervolt;
     uint64_t  time_unset;
+    uint64_t  synthetic;     /* readable records with GT_REC_SYNTHETIC (fake feeder, not a sensor) */
     uint64_t  gap_events;    /* places where seq jumped forward by more than one */
     uint64_t  missing;       /* records those jumps skipped */
     bool      have_prev;
@@ -88,8 +89,19 @@ typedef enum page_state {
 #define PAGE_R_NO_SOIL          0x0100u /* records exist but none has a valid soil value */
 #define PAGE_R_LOW_DISK         0x0200u
 
+/* Where the readable records of the window came from.  This labels the data only: it never
+ * changes the page state or needs-water. */
+typedef enum page_source {
+    PAGE_SRC_NONE      = 0, /* no readable records */
+    PAGE_SRC_LIVE      = 1, /* none carries GT_REC_SYNTHETIC */
+    PAGE_SRC_SYNTHETIC = 2, /* all carry it */
+    PAGE_SRC_MIXED     = 3  /* some do */
+} page_source;
+
 typedef struct page_view {
     page_state state;
+    page_source source;
+    uint64_t   synthetic;     /* records of the window with GT_REC_SYNTHETIC */
     unsigned   reasons;       /* PAGE_R_* */
     int        store_errno;
     bool       have_last;
@@ -114,6 +126,7 @@ typedef struct page_view {
 void page_judge(const page_input* in, page_view* v);
 
 const char* page_state_name(page_state s); /* "ok", "degraded" or "no_data" */
+const char* page_source_name(page_source s); /* "none", "live", "synthetic" or "mixed" */
 
 /* Render into buf (cap bytes).  Returns the length without the terminating NUL, or -1 if
  * cap is too small, in which case buf holds an empty string (if cap > 0). */

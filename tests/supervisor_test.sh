@@ -133,4 +133,15 @@ sleep 3 # the held-back child must not start again
 [ "$(count 'start child=')" -eq 3 ] || fail "child started during the held-back delay"
 stop_sup
 
+echo "a status line is logged for each child on the --status interval"
+start_sup beat "--status 1"
+wait_count "status child=.* alive=1 .*rss_kb=[0-9][0-9]* fds=[0-9][0-9]* restarts=0 faults=0" 2 10
+[ "$(count ' WARN \| ERROR ')" -eq 0 ] || fail "a healthy child's status gave a warning or error"
+stop_sup
+
+echo "the status line counts a crashing child's restarts and faults"
+start_sup crash "--status 2"
+wait_count "status child=.* alive=. .*restarts=[1-9][0-9]* faults=[1-9][0-9]*" 1 12
+stop_sup
+
 echo "PASS"

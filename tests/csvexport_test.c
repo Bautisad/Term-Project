@@ -32,7 +32,7 @@
 
 #define HEADER                                                                             \
     "time_utc,unix_ms,seq,soil_raw,soil_valid,soil_stuck,light,light_valid,"               \
-    "light_bright_ms,light_changes,clock_unset,undervoltage\n"
+    "light_bright_ms,light_changes,clock_unset,undervoltage,synthetic\n"
 
 static const char* g_csv;
 
@@ -231,15 +231,41 @@ static void test_columns_and_flags(void)
     CHECK(export_store(&e, NULL, out, sizeof out, err, sizeof err) == 0);
     CHECK(strcmp(out,
                  HEADER
-                 "2023-11-14T22:13:20.000Z,1700000000000,1,812,yes,no,bright,yes,45000,3,no,no\n"
-                 "2023-11-14T22:13:21.000Z,1700000001000,2,0,no,no,dark,yes,0,0,no,no\n"
-                 "2023-11-14T22:13:22.000Z,1700000002000,3,790,yes,yes,dark,yes,60000,0,no,no\n"
-                 "2023-11-14T22:13:23.000Z,1700000003000,4,801,yes,no,dark,no,0,65535,no,no\n"
-                 "2023-11-14T22:13:24.000Z,1700000004000,5,800,yes,no,dark,yes,12,1,yes,no\n"
-                 "2023-11-14T22:13:25.000Z,1700000005000,6,799,yes,no,bright,yes,1,2,no,yes\n"
-                 "2023-11-14T22:13:26.007Z,1700000006007,7,65535,yes,no,dark,yes,0,0,no,no\n") ==
+                 "2023-11-14T22:13:20.000Z,1700000000000,1,812,yes,no,bright,yes,45000,3,no,no,no\n"
+                 "2023-11-14T22:13:21.000Z,1700000001000,2,0,no,no,dark,yes,0,0,no,no,no\n"
+                 "2023-11-14T22:13:22.000Z,1700000002000,3,790,yes,yes,dark,yes,60000,0,no,no,no\n"
+                 "2023-11-14T22:13:23.000Z,1700000003000,4,801,yes,no,dark,no,0,65535,no,no,no\n"
+                 "2023-11-14T22:13:24.000Z,1700000004000,5,800,yes,no,dark,yes,12,1,yes,no,no\n"
+                 "2023-11-14T22:13:25.000Z,1700000005000,6,799,yes,no,bright,yes,1,2,no,yes,no\n"
+                 "2023-11-14T22:13:26.007Z,1700000006007,7,65535,yes,no,dark,yes,0,0,no,no,no\n") ==
           0);
     CHECK(strstr(err, "rows=7 corrupt_skipped=0") != NULL);
+    rm_tree(e.root);
+}
+
+/* Fake records are marked on their own row; live rows, whatever their other flags, are not. */
+static void test_synthetic_column(void)
+{
+    env       e;
+    char      out[2048];
+    char      err[1024];
+    gt_record recs[] = {
+        rec(T_BASE, 1, 812, GT_REC_SYNTHETIC | GT_REC_LIGHT_BRIGHT, 45000, 3),
+        rec(T_BASE + 1000, 2, 800, 0, 0, 0),
+        rec(T_BASE + 2000, 3, 0, GT_REC_SYNTHETIC | GT_REC_SOIL_INVALID, 0, 0),
+        rec(T_BASE + 3000, 4, 799, GT_REC_SOIL_STUCK | GT_REC_TIME_UNSET | GT_REC_UNDERVOLT, 1, 1),
+    };
+
+    env_init(&e);
+    build(e.store, recs, sizeof recs / sizeof recs[0]);
+    CHECK(export_store(&e, NULL, out, sizeof out, err, sizeof err) == 0);
+    CHECK(strcmp(out,
+                 HEADER
+                 "2023-11-14T22:13:20.000Z,1700000000000,1,812,yes,no,bright,yes,45000,3,no,no,yes\n"
+                 "2023-11-14T22:13:21.000Z,1700000001000,2,800,yes,no,dark,yes,0,0,no,no,no\n"
+                 "2023-11-14T22:13:22.000Z,1700000002000,3,0,no,no,dark,yes,0,0,no,no,yes\n"
+                 "2023-11-14T22:13:23.000Z,1700000003000,4,799,yes,yes,dark,yes,1,1,yes,yes,no\n") ==
+          0);
     rm_tree(e.root);
 }
 
@@ -406,6 +432,7 @@ int main(int argc, char** argv)
     CHECK(argc == 2);
     g_csv = argv[1];
     test_columns_and_flags();
+    test_synthetic_column();
     test_ranges_and_days();
     test_corrupt_record();
     test_empty_and_missing();
