@@ -164,7 +164,10 @@ static void test_library(void)
         CHECK(r.cycles[i].reject == DRY_OK);
         CHECK(r.cycles[i].complete == (i < COMPLETE));
         CHECK(fabs(r.cycles[i].slope_per_h - (-3.0)) < 0.1);
+        /* #26: these records have a valid light flag that never read bright. */
+        CHECK(r.cycles[i].bright_h_per_day == 0.0 && r.cycles[i].light_coverage > 0.9);
     }
+    CHECK(r.dry_raw == 565.0);
     CHECK(r.skipped_invalid == 12u && r.skipped_stuck == 6u && r.skipped_corrupt == 0u);
     CHECK(r.skipped_time_unset == 0u && r.out_of_order == 0u);
     CHECK(r.have_last && r.last_ts_ms == g_last_ts);
@@ -265,6 +268,11 @@ static void test_tool(void)
     CHECK(p != NULL && sscanf(p, "\nprediction hours=%lf", &hours) == 1);
     CHECK(fabs(hours - truth) < 0.05 * truth);
     CHECK(strstr(out, " cycles=7 ") != NULL);
+    /* #26: the cycles show their light, and the adjusted estimate says why it has nothing: the
+     * light never differed between the seven cycles. */
+    CHECK(strstr(out, " light_h=0.0 light_coverage=") != NULL);
+    CHECK(strstr(out, "\nprediction_light_withheld reason=no_light_spread have=7 need=5") != NULL);
+    CHECK(strstr(out, "compare") == NULL); /* only with --compare */
 
     /* A different threshold changes the answer. */
     (void)snprintf(args, sizeof args, "--dir %s --dry 700 --days 60 --now %llu", g_dir,
@@ -280,12 +288,32 @@ static void test_tool(void)
                    (unsigned long long)(g_last_ts + STEP_MS));
     CHECK(tool(args, out, sizeof out) == 0);
     CHECK(strstr(out, "prediction_withheld reason=insufficient_cycles have=1 need=3") != NULL);
+    CHECK(strstr(out, "prediction_light_withheld reason=insufficient_cycles have=1 need=5") != NULL);
 
     /* The clock two hours past the last record: the data is too old to count down from. */
     (void)snprintf(args, sizeof args, "--dir %s --days 60 --now %llu", g_dir,
                    (unsigned long long)(g_last_ts + 2ull * 3600000ull));
     CHECK(tool(args, out, sizeof out) == 0);
     CHECK(strstr(out, "prediction_withheld reason=no_recent_data have=7 need=3") != NULL);
+    CHECK(strstr(out, "prediction_light_withheld reason=no_recent_data have=7 need=5") != NULL);
+
+    /* --compare, default threshold 565: these cycles stop at about 684, so none reached it and
+     * there is nothing to compare. */
+    (void)snprintf(args, sizeof args, "--dir %s --days 60 --now %llu --compare", g_dir,
+                   (unsigned long long)(g_last_ts + STEP_MS));
+    CHECK(tool(args, out, sizeof out) == 0);
+    CHECK(strstr(out, "compare: each past dry-down predicted 12 h before it reached 565, from the other cycles") != NULL);
+    CHECK(strstr(out, "compare paired=0 need=5 soil_median_err_h=0.00 light_median_err_h=0.00 verdict=insufficient") != NULL);
+    CHECK(strstr(out, "  compare cycle=") == NULL);
+
+    /* --compare --dry 700: they did reach it, so each is compared, but with no light to tell the
+     * cycles apart the adjusted estimate is withheld for every one, and there is no verdict. */
+    (void)snprintf(args, sizeof args, "--dir %s --dry 700 --days 60 --now %llu --compare", g_dir,
+                   (unsigned long long)(g_last_ts + STEP_MS));
+    CHECK(tool(args, out, sizeof out) == 0);
+    CHECK(strstr(out, "  compare cycle=2023-11-14T") != NULL);
+    CHECK(strstr(out, " light_hours=withheld") != NULL);
+    CHECK(strstr(out, "compare paired=0 need=5 ") != NULL && strstr(out, "verdict=insufficient") != NULL);
 
     /* A missing store is an error with the errno in the message. */
     (void)snprintf(args, sizeof args, "--dir %s/nope --now 1700000000000", g_dir);
@@ -309,6 +337,7 @@ static void test_tool(void)
     (void)snprintf(args, sizeof args, "--dir %s --dry", g_dir);
     CHECK(tool(args, out, sizeof out) == 2);
     CHECK(tool("--help", out, sizeof out) == 0 && strstr(out, "usage: gt-analyze") != NULL);
+    CHECK(strstr(out, "--compare") != NULL);
 }
 
 static void test_tool_empty_store(void)
@@ -323,6 +352,7 @@ static void test_tool_empty_store(void)
     CHECK(strstr(out, "records: 0 used=0") != NULL && strstr(out, "latest: none") != NULL);
     CHECK(strstr(out, "cycles: 0 found, 0 shown") != NULL);
     CHECK(strstr(out, "prediction_withheld reason=no_recent_data have=0 need=3") != NULL);
+    CHECK(strstr(out, "prediction_light_withheld reason=no_recent_data have=0 need=5") != NULL);
     rm_tree(empty);
 }
 

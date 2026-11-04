@@ -1,11 +1,14 @@
 /* gt-analyze: runs the dry-down analysis (#27) on a store and prints what it found.
  *
- *   gt-analyze --dir DIR [--dry N] [--days N] [--now MS]
+ *   gt-analyze --dir DIR [--dry N] [--days N] [--now MS] [--compare]
  *
  * Reads the last --days days of the store (read-only, safe while a writer runs), finds the
  * dry-down cycles, and says how long until the soil reaches the dry threshold, or why it will
  * not say.  The threshold is NOT calibrated (S1 was descoped): --dry sets it and the report
  * always says so.  --now exists so a test or a replay of old data can pick the clock.
+ *
+ * #26: a second estimate adjusts the drying rate for light (bright hours per day), or says why
+ * it will not.  --compare adds the DESIGN.md C3 comparison of the two on the past cycles.
  *
  * Exit 0: done (a withheld prediction is a result, not a failure).  1: the store could not be
  * read.  2: bad arguments. */
@@ -18,6 +21,7 @@
 #include <time.h>
 
 #include "analyze.h"
+#include "lightadj.h"
 #include "predict.h"
 
 #define EXIT_DONE  0
@@ -32,12 +36,14 @@
 static void usage(FILE* out)
 {
     (void)fprintf(out,
-                  "usage: gt-analyze --dir DIR [--dry N] [--days N] [--now MS]\n"
+                  "usage: gt-analyze --dir DIR [--dry N] [--days N] [--now MS] [--compare]\n"
                   "  --dir DIR   store directory (read-only; safe while a writer runs)\n"
                   "  --dry N     raw soil value at or below which the soil counts as dry, 0-65535,\n"
                   "              default %u. Not calibrated: S1 was descoped.\n"
                   "  --days N    how much history to read, 1-%u, default %u\n"
                   "  --now MS    the clock, Unix milliseconds, default the real time\n"
+                  "  --compare   also compare the soil-only and light-adjusted estimates on the\n"
+                  "              past dry-downs (DESIGN.md test C3)\n"
                   "Exit 0 done (a withheld prediction is a result), 1 store error, 2 bad arguments.\n",
                   DRY_DEFAULT, DAYS_MAX, DAYS_DEFAULT);
 }
@@ -78,10 +84,15 @@ int main(int argc, char** argv)
     uint64_t    days = DAYS_DEFAULT;
     uint64_t    now = 0;
     bool        have_now = false;
+    bool        compare = false;
     uint64_t    from;
+    dry_params  dp;
     dry_result  r;
     predict_params pp;
     predict_result pr;
+    lightadj_params lp;
+    lightadj_result lr;
+    lightadj_backtest_result bt;
     char        a[40];
     char        b[40];
     char        line[256];
@@ -90,6 +101,10 @@ int main(int argc, char** argv)
         if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
             usage(stdout);
             return EXIT_DONE;
+        }
+        if (strcmp(argv[i], "--compare") == 0) {
+            compare = true;
+            continue;
         }
         if (i + 1 >= argc) {
             usage(stderr);
@@ -118,7 +133,9 @@ int main(int argc, char** argv)
     }
     from = (now > days * MS_PER_DAY) ? now - days * MS_PER_DAY : 0u;
 
-    if (analysis_run(dir, from, UINT64_MAX, NULL, &r) != 0) {
+    dry_params_default(&dp);
+    dp.dry_raw = (double)dry;
+    if (analysis_run(dir, from, UINT64_MAX, &dp, &r) != 0) {
         (void)fprintf(stderr, "ERROR analysis read_failed dir=%s errno=%d\n", dir, errno);
         return EXIT_IO;
     }
@@ -138,9 +155,11 @@ int main(int argc, char** argv)
 
         format_time(c->start_ms, a, sizeof a);
         format_time(c->end_ms, b, sizeof b);
-        (void)printf("  cycle start=%s end=%s hours=%.1f complete=%s verdict=%s slope_per_h=%.2f r2=%.3f buckets=%zu\n",
+        (void)printf("  cycle start=%s end=%s hours=%.1f complete=%s verdict=%s slope_per_h=%.2f r2=%.3f buckets=%zu "
+                     "light_h=%.1f light_coverage=%.2f\n",
                      a, b, (double)(c->end_ms - c->start_ms) / 3600000.0, c->complete ? "yes" : "no",
-                     dry_reject_name(c->reject), c->slope_per_h, c->r2, c->buckets);
+                     dry_reject_name(c->reject), c->slope_per_h, c->r2, c->buckets, c->bright_h_per_day,
+                     c->light_coverage);
     }
     if (r.have_last) {
         format_time(r.last_ts_ms, a, sizeof a);
@@ -157,5 +176,37 @@ int main(int argc, char** argv)
     }
     (void)predict_describe(&pr, line, sizeof line);
     (void)printf("%s\n", line);
+
+    lightadj_params_default(&lp);
+    if (lightadj_predict(&r, &pp, &lp, now, &lr) != 0) {
+        (void)fprintf(stderr, "ERROR analysis bad_parameters errno=%d\n", errno);
+        return EXIT_USAGE;
+    }
+    (void)lightadj_describe(&lr, line, sizeof line);
+    (void)printf("%s\n", line);
+
+    if (compare) {
+        if (lightadj_backtest(&r, &lp, &bt) != 0) {
+            (void)fprintf(stderr, "ERROR analysis bad_parameters errno=%d\n", errno);
+            return EXIT_USAGE;
+        }
+        (void)printf("compare: each past dry-down predicted %.0f h before it reached %llu, from the other cycles\n",
+                     DRY_EVAL_AHEAD_H, (unsigned long long)dry);
+        for (size_t i = 0; i < bt.n_eval; i++) {
+            const lightadj_eval* e = &bt.eval[i];
+
+            format_time(r.cycles[e->cycle].start_ms, a, sizeof a);
+            if (e->have_light) {
+                (void)printf("  compare cycle=%s level=%.0f light_h=%.1f soil_hours=%.1f light_hours=%.1f\n", a,
+                             e->level, e->light, e->soil_hours, e->light_hours);
+            } else {
+                (void)printf("  compare cycle=%s level=%.0f light_h=%.1f soil_hours=%.1f light_hours=withheld\n", a,
+                             e->level, e->light, e->soil_hours);
+            }
+        }
+        (void)printf("compare paired=%zu need=%zu soil_median_err_h=%.2f light_median_err_h=%.2f verdict=%s\n",
+                     bt.paired, bt.need, bt.soil_median_err_h, bt.light_median_err_h,
+                     lightadj_verdict_name(bt.verdict));
+    }
     return (fflush(stdout) == 0 && ferror(stdout) == 0) ? EXIT_DONE : EXIT_IO;
 }

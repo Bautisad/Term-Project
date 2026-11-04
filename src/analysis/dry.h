@@ -41,17 +41,24 @@ typedef struct dry_params {
     uint64_t max_gap_ms;    /* a hole this long between buckets inside a cycle rejects it */
     double   min_r2;        /* the line must explain at least this much of the variation */
     size_t   max_buckets;   /* a read with more buckets than this is stopped; 1..DRY_MAX_BUCKETS */
+    double   dry_raw;       /* #26: only used to find where each cycle reaches the dry level */
 } dry_params;
 
-/* Draft: [10 min], [60], [12], [12 h], [6 h], [0.8], DRY_MAX_BUCKETS.  60 is about four times
- * the noise. */
+/* Draft: [10 min], [60], [12], [12 h], [6 h], [0.8], DRY_MAX_BUCKETS, dry_raw [565].  60 is
+ * about four times the noise.  565 is the uncalibrated "very dry soil" reading (README). */
 void dry_params_default(dry_params* p);
 
+/* #26: the light module reports how long the flag read bright in each record's cycle
+ * (light_bright_ms, at most this long).  Longer values are clamped. */
+#define DRY_LIGHT_WINDOW_MS 60000.0
+
 typedef struct dry_bucket {
-    uint64_t id;    /* timestamp / bucket_ms */
-    double   sum;   /* of soil_raw */
-    double   t_sum; /* of the milliseconds past the start of the bucket */
+    uint64_t id;        /* timestamp / bucket_ms */
+    double   sum;       /* of soil_raw */
+    double   t_sum;     /* of the milliseconds past the start of the bucket */
     uint32_t n;
+    double   bright_ms; /* of light_bright_ms, over the records whose light is valid */
+    uint32_t light_n;   /* records with a valid light reading (n - light_n have LIGHT_INVALID) */
 } dry_bucket;
 
 typedef struct dry_acc {
@@ -100,9 +107,27 @@ typedef struct dry_cycle {
     size_t     buckets;
     bool       complete;           /* ended by watering; false for the open (current) cycle */
     dry_reject reject;
+    /* #26: light over the whole cycle.  bright_h_per_day is hours of "bright" per 24 h, from
+     * the records with a valid light reading; light_coverage is the share of the cycle's
+     * records that had one (0..1).  With no valid light at all both are 0. */
+    double     bright_h_per_day;
+    double     light_coverage;
+    /* #26, for the light-versus-soil-only comparison (C3).  cross_ms is the first bucket at or
+     * below dry_raw (0 if the cycle never got there).  have_eval says there is a bucket at
+     * least DRY_EVAL_AHEAD_H hours before it, inside the cycle, with valid light so far:
+     * level_eval and bright_eval (bright hours/day from the cycle start to that bucket) are
+     * what the device would have known then. */
+    uint64_t   cross_ms;
+    bool       have_eval;
+    double     level_eval;
+    double     bright_eval;
 } dry_cycle;
 
+/* How long before the crossing the C3 comparison predicts (DESIGN.md C3: 12 hours). */
+#define DRY_EVAL_AHEAD_H 12.0
+
 typedef struct dry_result {
+    double    dry_raw;      /* the parameter the cycles' cross_ms refer to */
     size_t    n_cycles;     /* cycles[0..n_cycles), oldest first */
     size_t    cycles_total; /* found, including any older ones that no longer fit */
     dry_cycle cycles[DRY_MAX_CYCLES];

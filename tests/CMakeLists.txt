@@ -94,6 +94,12 @@ if(UNIX AND TARGET gt_analysis)
   add_test(NAME analysis_predict COMMAND analysis_predict_test)
   set_tests_properties(analysis_predict PROPERTIES TIMEOUT 60)
 
+  # Analysis: the light-adjusted estimate (#26), when it holds back, and the C3 comparison.
+  add_executable(analysis_light_test analysis_light_test.c)
+  target_link_libraries(analysis_light_test PRIVATE gt_analysis)
+  add_test(NAME analysis_light COMMAND analysis_light_test)
+  set_tests_properties(analysis_light PROPERTIES TIMEOUT 60)
+
   # Analysis: the needs-water state, its hysteresis, and when it says unknown.
   add_executable(analysis_thirst_test analysis_thirst_test.c)
   target_link_libraries(analysis_thirst_test PRIVATE gt_analysis)
