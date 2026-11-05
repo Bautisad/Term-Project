@@ -263,6 +263,17 @@ Limits of this result:
 - No torn record was seen, so truncating a partial record after power loss was not exercised.
 - The writer log is not fsynced and its contents were lost in the pull, so each recovery was checked against a log of one start (`--restarts 0`).
 
+**Measured results (P4).** Not run yet. To be filled from `tools/soakreport.sh` on the raw journal export, following `SOAK-RUNBOOK.md`. The target in the table above is not edited: a miss is recorded here with the reason.
+
+| ID | Target | Measured | Result | Date | Notes |
+|----|--------|----------|--------|------|-------|
+| P4 | 2,880 records with no unexplained sequence gaps, RSS growth under 1 MB per process, constant fd counts, 0 unplanned supervisor restarts | not run | not run | | Planned faults inside the run: one 10-minute soil unplug, one `kill -9` of the soil process, one `kill -9` of the light process. "0 unplanned restarts" means none outside those marked windows. |
+
+Limits of the P4 run, fixed in advance:
+- S6 is partly run. The soil unplug is run inside the soak; shorting a wire and holding a reading constant (the "stuck" case) are not run, because of the pin risk and the 60 identical cycles it takes.
+- A disconnected DO wire inside the soak may never be flagged, because the light process marks INVALID only after 48 hours with no change. L6 is a separate hand run with a short `--stuck` (see `SOAK-RUNBOOK.md`).
+- The supervisor reports no record count, so records are counted from the store by `gt-logcheck`.
+
 ### Mechanism evaluation: D and E
 
 We claim two mechanisms from the course menu: **D** (custom storage layer, with
