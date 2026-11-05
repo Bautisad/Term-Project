@@ -254,6 +254,16 @@ if(UNIX AND TARGET gt-feeder AND TARGET gt-logcheck)
   set_tests_properties(soakcheck_behavior PROPERTIES TIMEOUT 120)
 endif()
 
+# Soak report (tools/soakreport.sh): reads the supervisor's status lines from a journal export;
+# passes a clean run and fails on RSS growth, a changed fd count, a gap, a vanished or dead
+# child, too few lines and malformed lines; bad arguments exit 2.  Synthetic journals only.
+if(UNIX)
+  add_test(NAME soakreport_behavior
+           COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/soakreport_test.sh
+                   ${CMAKE_SOURCE_DIR}/tools/soakreport.sh)
+  set_tests_properties(soakreport_behavior PROPERTIES TIMEOUT 60)
+endif()
+
 # Log checker: clean and corrupted logs, seq gaps, writer-log and progress checks, and the
 # kill -9 / restart chain with the real feeder.
 if(UNIX AND TARGET gt-logcheck AND TARGET gt-feeder)

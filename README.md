@@ -151,7 +151,7 @@ Today this builds `gt-supervisor`, `gt-hub`, `gt-sensor-soil`, `gt-sensor-light`
 5. Break something. `sudo pkill -9 gt-hub`: expect `died signal=9` then `restart=1 delay=1s` in the journal, and a gap in the sequence numbers where the hub was down. Unplug the soil sensor: expect INVALID soil readings, and `giving_up` after five failed cycles.
 6. Stop it: `sudo systemctl stop greenthumb`. Expect `stopped` in the journal and exit status 0.
 
-The 48-hour soak is not wired up yet: `tools/soakcheck.sh` still drives the feeder, not these processes.
+The 48-hour soak on the real processes is written up in [`SOAK-RUNBOOK.md`](SOAK-RUNBOOK.md): the run, the planned fault injections, the capture and `tools/soakreport.sh`, which judges the journal. It has not been run on the Pi yet. `make soakcheck` is still the fake-feeder miniature (`tools/soakcheck.sh` drives the feeder, not these processes).
 
 ## View the page
 
@@ -207,7 +207,7 @@ build/tools/gt-analyze --dir /var/lib/greenthumb/store
 
 These are the parts still to come. The issue numbers are on the repository's issue tracker.
 
-- The whole device running on the Pi: the supervisor starting the hub and both sensors with the real sensors (`systemd/greenthumb.service` is written but not yet installed or tried on the Pi), then the 48-hour soak with a harness that measures the real processes (`tools/soakcheck.sh` still drives the feeder)
+- The whole device running on the Pi: the supervisor starting the hub and both sensors with the real sensors (`systemd/greenthumb.service` is written but not yet installed or tried on the Pi), then the 48-hour soak, whose runbook and report (`SOAK-RUNBOOK.md`, `tools/soakreport.sh`) are written and tested on synthetic journals but not run on the Pi (`make soakcheck` still drives the feeder)
 - Supervisor: the `events.log` file, and killing orphaned children when it starts
 - Analysis: dry-down detection and time-until-dry (#27) is written and tested on synthetic data, and still has to be run on real recorded history; the light-adjusted prediction and its C3 comparison (#26) are written and tested on synthetic data, and still need at least 5 real dry-downs
 - Calibrating the "needs water" state on the LAN page (#43): it is built and tested, but the dry threshold is a guess (test S1 was not run) and the check against 20 real weight or finger tests (C4) has not been done
