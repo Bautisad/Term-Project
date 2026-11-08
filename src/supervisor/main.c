@@ -4,10 +4,12 @@
  * shutdown).  A child killed for silence is restarted even if it exits 0.  More than --max
  * restarts inside --window seconds is a crash loop: the child is marked DEGRADED and its restart
  * delay held at the cap.  Every --status seconds (default one hour) it logs one "status" line
- * per child: alive, rss_kb, fds, restarts and faults.  An events.log file is not written yet.
+ * per child: alive, rss_kb, fds, restarts and faults.  With --events PATH every log line is also
+ * appended to that file.  With --pids PATH it records its children there, and at start kills any
+ * that a dead supervisor left running.  Children also get SIGTERM if the supervisor dies.
  *
  * usage: gt-supervisor [--soft S] [--hard S] [--grace S] [--max N] [--window S] [--status S]
- *                      [CHILD_PATH...]
+ *                      [--events PATH] [--pids PATH] [CHILD_PATH...]
  *        defaults: the ipc.h limits and ./gt-hub ./gt-sensor-soil ./gt-sensor-light ./gt-interface
  *        gt-supervisor --version
  * Exit: 0 clean shutdown, 1 no child left to supervise, 2 bad arguments. */
@@ -25,6 +27,7 @@
 #include "child.h"
 #include "ipc.h"
 #include "ipc_io.h"
+#include "orphan.h"
 #include "status.h"
 #include "sup_log.h"
 
@@ -102,7 +105,7 @@ static void drain_ctl(child* c, int64_t now)
     }
 }
 
-static int run(child* ch, size_t n, const hb_limits* lim)
+static int run(child* ch, size_t n, const hb_limits* lim, const char* pids)
 {
     sigset_t      want;
     sigset_t      orig;
@@ -135,8 +138,12 @@ static int run(child* ch, size_t n, const hb_limits* lim)
             child*  c = &ch[i];
             int64_t ev;
 
-            if (c->pid == 0 && !c->stopped && c->restart_at_ms <= now && spawn(c, &orig, now) != 0) {
-                schedule_restart(c, now, lim);
+            if (c->pid == 0 && !c->stopped && c->restart_at_ms <= now) {
+                if (spawn(c, &orig, now) != 0) {
+                    schedule_restart(c, now, lim);
+                } else if (pids != NULL) {
+                    pids_save(pids, ch, n);
+                }
             }
             ev = child_next_event(c, lim);
             if (ev >= 0 && (next < 0 || ev < next)) {
@@ -222,6 +229,8 @@ int main(int argc, char** argv)
     hb_limits                lim = {GT_HEARTBEAT_SOFT_S, GT_HEARTBEAT_HARD_S, GT_KILL_GRACE_S,
                                     GT_RESTART_MAX, GT_RESTART_WINDOW_S, GT_STATUS_INTERVAL_S};
     child                    ch[MAX_CHILDREN];
+    const char*              events = NULL;
+    const char*              pids = NULL;
     int                      a = 1;
     bool                     ok = true;
 
@@ -229,7 +238,9 @@ int main(int argc, char** argv)
         return puts("gt-supervisor 0.1.0") == EOF ? 1 : 0;
     }
     for (; ok && a + 1 < argc && strncmp(argv[a], "--", 2) == 0; a += 2) {
-        ok = set_limit(&lim, argv[a], argv[a + 1]);
+        ok = strcmp(argv[a], "--events") == 0 ? (events = argv[a + 1]) != NULL
+             : strcmp(argv[a], "--pids") == 0 ? (pids = argv[a + 1]) != NULL
+                                              : set_limit(&lim, argv[a], argv[a + 1]);
     }
     if (argc > a) {
         paths = (const char* const*)(argv + a);
@@ -237,11 +248,18 @@ int main(int argc, char** argv)
     }
     if (!ok || n > MAX_CHILDREN || (argc > a && argv[a][0] == '-') || lim.soft_s >= lim.hard_s) {
         (void)fprintf(stderr, "usage: %s [--soft S] [--hard S] [--grace S] [--max N] [--window S] "
-                      "[--status S] [CHILD_PATH...] (at most %d)\n", argv[0], MAX_CHILDREN);
+                      "[--status S] [--events PATH] [--pids PATH] [CHILD_PATH...] (at most %d)\n",
+                      argv[0], MAX_CHILDREN);
         return GT_EXIT_CONFIG;
+    }
+    if (events != NULL) {
+        (void)events_open(events);
+    }
+    if (pids != NULL) {
+        orphans_kill(pids, lim.grace_s);
     }
     for (size_t i = 0; i < n; i++) {
         child_init(&ch[i], paths[i]);
     }
-    return run(ch, n, &lim);
+    return run(ch, n, &lim, pids);
 }

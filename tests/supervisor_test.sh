@@ -144,4 +144,53 @@ start_sup crash "--status 2"
 wait_count "status child=.* alive=. .*restarts=[1-9][0-9]* faults=[1-9][0-9]*" 1 12
 stop_sup
 
+EV=$WORK/events.file
+
+echo "--events appends the same lines as stderr, and its fd is not leaked by restarts"
+start_sup crash "--events $EV"
+wait_count "restart=1 delay=1s" 1 5
+fds1=$(ls "/proc/$SUPPID/fd" | wc -l) # the child is dead here, so its control socket is closed
+wait_count "restart=3 delay=4s" 1 10
+fds3=$(ls "/proc/$SUPPID/fd" | wc -l)
+stop_sup
+[ "$fds1" -eq "$fds3" ] || fail "fd count went from $fds1 to $fds3 across restarts"
+grep ' supervisor ' "$LOG" | cmp -s - "$EV" || fail "events file differs from the stderr lines"
+
+echo "an unusable --events path is logged and the supervisor still restarts its child"
+start_sup crash "--events $WORK/nodir/events.log"
+wait_count "events open failed" 1 3
+wait_count "restart=1 delay=1s" 1 5
+stop_sup
+
+PIDS=$WORK/children
+
+echo "kill -9 of the supervisor orphans a child that ignores SIGTERM; the next supervisor kills it"
+start_sup stubborn "--grace 1 --pids $PIDS"
+wait_count "gt-fake-child: ready" 1 15
+ORPHAN=$(sed -n 's/.*start child=gt-fake-child pid=//p' "$LOG")
+kill -KILL "$SUPPID"
+wait "$SUPPID" 2>/dev/null
+SUPPID=
+alive "$ORPHAN" || fail "the child died with the supervisor, so it was not an orphan"
+start_sup stubborn "--grace 1 --pids $PIDS"
+wait_count "start orphans_killed=1" 1 10
+alive "$ORPHAN" && fail "orphan $ORPHAN is still running"
+[ "$(count "orphan pid=$ORPHAN")" -eq 1 ] || fail "orphan pid not logged"
+wait_count "gt-fake-child: ready" 1 15
+stop_sup
+
+echo "kill -9 of the supervisor sends SIGTERM to a child that handles it"
+start_sup run
+wait_count "gt-fake-child: ready" 1 15
+ORPHAN=$(sed -n 's/.*start child=gt-fake-child pid=//p' "$LOG")
+kill -KILL "$SUPPID"
+wait "$SUPPID" 2>/dev/null
+SUPPID=
+i=0
+while alive "$ORPHAN"; do
+    i=$((i + 1))
+    [ "$i" -gt 30 ] && fail "child $ORPHAN outlived the supervisor"
+    sleep 0.1
+done
+
 echo "PASS"

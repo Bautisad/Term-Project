@@ -208,7 +208,7 @@ build/tools/gt-analyze --dir /var/lib/greenthumb/store
 These are the parts still to come. The issue numbers are on the repository's issue tracker.
 
 - The whole device running on the Pi: the supervisor starting the hub and both sensors with the real sensors (`systemd/greenthumb.service` is written but not yet installed or tried on the Pi), then the 48-hour soak, whose runbook and report (`SOAK-RUNBOOK.md`, `tools/soakreport.sh`) are written and tested on synthetic journals but not run on the Pi (`make soakcheck` still drives the feeder)
-- Supervisor: the `events.log` file, and killing orphaned children when it starts
+- Supervisor: the `events.log` file (`--events`) and killing orphaned children at start (`--pids`) are written and tested on the development machine, not yet run on the Pi
 - Analysis: dry-down detection and time-until-dry (#27) is written and tested on synthetic data, and still has to be run on real recorded history; the light-adjusted prediction and its C3 comparison (#26) are written and tested on synthetic data, and still need at least 5 real dry-downs
 - Calibrating the "needs water" state on the LAN page (#43): it is built and tested, but the dry threshold is a guess (test S1 was not run) and the check against 20 real weight or finger tests (C4) has not been done
 - Sensor calibration tests and crash-safety runs (#32, #29, #30, #31)
