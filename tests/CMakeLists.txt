@@ -29,6 +29,12 @@ if(UNIX AND TARGET gt_supervisor_core)
   target_link_libraries(status_test PRIVATE gt_supervisor_core)
   add_test(NAME status_logic COMMAND status_test)
   set_tests_properties(status_logic PROPERTIES TIMEOUT 30)
+
+  # Orphan sweep: the /proc start-time reader, the pids file, and files that must kill nothing.
+  add_executable(orphan_test orphan_test.c)
+  target_link_libraries(orphan_test PRIVATE gt_supervisor_core)
+  add_test(NAME orphan_logic COMMAND orphan_test)
+  set_tests_properties(orphan_logic PROPERTIES TIMEOUT 30)
 endif()
 
 # IPC send/receive: round trips, malformed messages, EOF, listening socket.
