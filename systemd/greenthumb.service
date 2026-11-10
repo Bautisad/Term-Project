@@ -10,12 +10,13 @@ Description=Project Green Thumb: supervisor, hub and sensors
 User=dbautista
 SupplementaryGroups=i2c gpio
 WorkingDirectory=/home/dbautista/greenthumb/bin
-ExecStart=/home/dbautista/greenthumb/bin/gt-supervisor
+ExecStart=/home/dbautista/greenthumb/bin/gt-supervisor --events /var/lib/greenthumb/events.log --pids /run/greenthumb/children
 # Creates /run/greenthumb (hub socket) and /var/lib/greenthumb (the hub makes store/ inside it).
 RuntimeDirectory=greenthumb
 StateDirectory=greenthumb
 # DESIGN row 13: systemd is the supervisor's watcher.  If it dies, systemd kills the children
-# left in its cgroup before restarting it, so no orphan holds the store lock.
+# left in its cgroup before restarting it, so no orphan holds the store lock.  --pids is a second
+# guard: the next supervisor kills any child the registry file lists that is still running.
 Restart=always
 RestartSec=5
 # The supervisor's own shutdown allows each child its SIGTERM grace, then SIGKILL.

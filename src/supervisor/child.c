@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -23,11 +24,16 @@ void child_init(child* c, const char* path)
     c->backoff_s = GT_BACKOFF_MIN_S;
 }
 
-/* Runs in the forked child: put the control socket on fd 3, restore the signal mask
- * (a blocked mask survives exec), then exec.  Never returns. */
-static void child_exec(const char* path, int ctl, const sigset_t* mask)
+/* Runs in the forked child: ask for SIGTERM if the supervisor `parent` dies, put the control
+ * socket on fd 3, restore the signal mask (a blocked mask survives exec), then exec.  Never
+ * returns. */
+static void child_exec(const char* path, int ctl, const sigset_t* mask, pid_t parent)
 {
     char* const argv[] = {(char*)path, NULL};
+
+    if (prctl(PR_SET_PDEATHSIG, SIGTERM) != 0 || getppid() != parent) { /* parent already gone */
+        _exit(GT_EXIT_FATAL);
+    }
 
     if (ctl != GT_CHILD_CTL_FD) {
         if (dup2(ctl, GT_CHILD_CTL_FD) < 0) {
@@ -50,6 +56,7 @@ static void child_exec(const char* path, int ctl, const sigset_t* mask)
 int spawn(child* c, const sigset_t* mask, int64_t now)
 {
     int   sv[2];
+    pid_t parent = getpid();
     pid_t pid;
 
     if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, sv) != 0) {
@@ -70,7 +77,7 @@ int spawn(child* c, const sigset_t* mask, int64_t now)
         return -1;
     }
     if (pid == 0) {
-        child_exec(c->path, sv[1], mask);
+        child_exec(c->path, sv[1], mask, parent);
     }
     close_fd(sv[1]);
     c->pid = pid;

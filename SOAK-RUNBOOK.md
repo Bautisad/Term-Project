@@ -23,7 +23,7 @@ Inside the 48 hours three faults are injected on purpose: one 10-minute soil unp
 Everything below runs on the Pi, from the deploy directory, with the unit stopped unless a step says otherwise.
 
 - Binaries and scripts: `~/greenthumb/bin` (from `make deploy`). It holds `gt-supervisor`, `gt-hub`, `gt-sensor-soil`, `gt-sensor-light`, `gt-interface`, `gt-logcheck`, `gt-csv`, `soakmark.sh` and `soakreport.sh`.
-- The unit: `/etc/systemd/system/greenthumb.service`. It runs `gt-supervisor` with no flags as `dbautista`. The hub socket is `/run/greenthumb/hub.sock` and the store is `/var/lib/greenthumb/store`. **Both come from the unit. Do not start `gt-supervisor` by hand for a soak or a rehearsal.**
+- The unit: `/etc/systemd/system/greenthumb.service`. It runs `gt-supervisor --events /var/lib/greenthumb/events.log --pids /run/greenthumb/children` as `dbautista`; the first file repeats every supervisor log line, and the second lists the children so a restarted supervisor can kill any it left behind. The hub socket is `/run/greenthumb/hub.sock` and the store is `/var/lib/greenthumb/store`. **Both come from the unit. Do not start `gt-supervisor` by hand for a soak or a rehearsal.**
 - Work files: `~/soak/<run name>/`. They are raw evidence, kept on the Pi and not committed (the same rule as the S2/S3 CSVs).
 
 ```
@@ -110,7 +110,7 @@ A scaled run to prove the whole pipeline (journal, marks, report) before 48 hour
 sudo systemctl edit greenthumb        # in the editor, add these three lines, then save
 #   [Service]
 #   ExecStart=
-#   ExecStart=/home/dbautista/greenthumb/bin/gt-supervisor --status 60
+#   ExecStart=/home/dbautista/greenthumb/bin/gt-supervisor --status 60 --events /var/lib/greenthumb/events.log --pids /run/greenthumb/children
 cd ~/soak/rehearsal
 ```
 
