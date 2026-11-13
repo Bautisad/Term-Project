@@ -1,0 +1,50 @@
+[    3.676629] hci_uart_bcm serial0-0: supply vddio not found, using dummy regulator
+[    3.724747] zram: setup backing device /dev/disk/by-backingfile/var-swap
+[    3.725788] zram0: detected capacity change from 0 to 4194304
+[    3.787431] Adding 2097136k swap on /dev/zram0.  Priority:100 extents:1 across:2097136k SS
+[    3.930003] brcmfmac: brcmf_c_process_txcap_blob: no txcap_blob available (err=-2)
+[    3.930267] brcmfmac: brcmf_c_preinit_dcmds: Firmware: BCM4345/6 wl0: Aug 29 2023 01:47:08 version 7.45.265 (28bca26 CY) FWID 01-b677b91b
+[    4.031707] Bluetooth: hci0: BCM: chip id 107
+[    4.031919] Bluetooth: hci0: BCM: features 0x2f
+[    4.032982] Bluetooth: hci0: BCM4345C0
+[    4.032987] Bluetooth: hci0: BCM4345C0 (003.001.025) build 0000
+[    4.036318] Bluetooth: hci0: BCM4345C0 'brcm/BCM4345C0.raspberrypi,5-model-b.hcd' Patch
+[    4.715564] Bluetooth: hci0: BCM: features 0x2f
+[    4.716885] Bluetooth: hci0: BCM43455 37.4MHz Raspberry Pi 3+-0190
+[    4.716891] Bluetooth: hci0: BCM4345C0 (003.001.025) build 0382
+[    4.717255] Bluetooth: hci0: BCM: Using default device address (43:45:c0:00:1f:ac)
+[    5.639472] Bluetooth: BNEP (Ethernet Emulation) ver 1.3
+[    5.639483] Bluetooth: BNEP filters: protocol multicast
+[    5.639489] Bluetooth: BNEP socket layer initialized
+[    5.645372] Bluetooth: MGMT ver 1.23
+[    5.660453] NET: Registered PF_ALG protocol family
+[    5.715948] Bluetooth: RFCOMM TTY layer initialized
+[    5.715964] Bluetooth: RFCOMM socket layer initialized
+[    5.715978] Bluetooth: RFCOMM ver 1.11
+[    8.853003] macb 1f00100000.ethernet eth0: PHY [1f00100000.ethernet-ffffffff:01] driver [Broadcom BCM54213PE] (irq=POLL)
+[    8.853886] macb 1f00100000.ethernet eth0: configuring for phy/rgmii-id link mode
+[    8.856889] macb 1f00100000.ethernet: gem-ptp-timer ptp clock registered.
+[    8.884201] brcmfmac: brcmf_cfg80211_set_power_mgmt: power save enabled
+[ 3130.089599] systemd-journald[333]: Received SIGTERM from PID 1 (systemd).
+[ 3130.089901] systemd[1]: Stopping systemd-journald.service - Journal Service...
+[ 3130.091546] systemd[1]: systemd-journald.service: Deactivated successfully.
+[ 3130.091759] systemd[1]: Stopped systemd-journald.service - Journal Service.
+[ 3130.096665] systemd[1]: Starting systemd-journald.service - Journal Service...
+[ 3130.146509] systemd-journald[12052]: Collecting audit messages is disabled.
+[ 3130.148633] systemd[1]: Started systemd-journald.service - Journal Service.
+[ 3462.959427] systemd-journald[12052]: Received SIGTERM from PID 1 (systemd).
+[ 3462.959737] systemd[1]: Stopping systemd-journald.service - Journal Service...
+[ 3462.961386] systemd[1]: systemd-journald.service: Deactivated successfully.
+[ 3462.961592] systemd[1]: Stopped systemd-journald.service - Journal Service.
+[ 3462.965592] systemd[1]: Starting systemd-journald.service - Journal Service...
+[ 3463.008925] systemd-journald[12371]: Collecting audit messages is disabled.
+[ 3463.010945] systemd[1]: Started systemd-journald.service - Journal Service.
+[ 3485.732838] systemd-journald[12371]: Received client request to flush runtime journal.
+[ 3536.518780] systemd-journald[12371]: Received SIGTERM from PID 1 (systemd).
+[ 3536.519076] systemd[1]: Stopping systemd-journald.service - Journal Service...
+[ 3536.520666] systemd[1]: systemd-journald.service: Deactivated successfully.
+[ 3536.520874] systemd[1]: Stopped systemd-journald.service - Journal Service.
+[ 3536.526254] systemd[1]: Starting systemd-journald.service - Journal Service...
+[ 3536.564957] systemd-journald[12464]: Collecting audit messages is disabled.
+[ 3536.566801] systemd[1]: Started systemd-journald.service - Journal Service.
+[ 3536.595704] systemd-journald[12464]: Received client request to flush runtime journal.
