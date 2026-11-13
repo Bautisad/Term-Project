@@ -1,0 +1,215 @@
+2026-11-11T03:13:14Z INFO supervisor start orphans_killed=0
+2026-11-11T03:13:14Z INFO supervisor start child=gt-hub pid=14085
+2026-11-11T03:13:14Z INFO supervisor start child=gt-sensor-soil pid=14086
+2026-11-11T03:13:14Z INFO supervisor start child=gt-sensor-light pid=14087
+2026-11-11T03:13:14Z INFO supervisor start child=gt-interface pid=14088
+2026-11-11T03:13:24Z INFO supervisor child=gt-sensor-soil state=running
+2026-11-11T03:13:24Z INFO supervisor child=gt-interface state=running
+2026-11-11T03:13:34Z INFO supervisor child=gt-hub state=running
+2026-11-11T03:14:14Z INFO supervisor child=gt-sensor-light state=running
+2026-11-11T04:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-11T04:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T04:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T04:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-11T05:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-11T05:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T05:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T05:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-11T06:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-11T06:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T06:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T06:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-11T07:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-11T07:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T07:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T07:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-11T08:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-11T08:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T08:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T08:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-11T09:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-11T09:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T09:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T09:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-11T10:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-11T10:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T10:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T10:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-11T11:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-11T11:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T11:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T11:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-11T12:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-11T12:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T12:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T12:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-11T13:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-11T13:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T13:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T13:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-11T14:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-11T14:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T14:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T14:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-11T15:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-11T15:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T15:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T15:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-11T16:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-11T16:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T16:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T16:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-11T17:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-11T17:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T17:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T17:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-11T18:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-11T18:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T18:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T18:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-11T19:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-11T19:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T19:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T19:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-11T20:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-11T20:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T20:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T20:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-11T21:13:02Z ERROR supervisor child=gt-sensor-soil pid=14086 died signal=9
+2026-11-11T21:13:02Z INFO supervisor child=gt-sensor-soil restart=1 delay=1s
+2026-11-11T21:13:03Z INFO supervisor start child=gt-sensor-soil pid=65831
+2026-11-11T21:13:13Z INFO supervisor child=gt-sensor-soil state=running
+2026-11-11T21:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-11T21:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-11T21:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T21:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-11T22:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-11T22:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-11T22:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T22:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-11T23:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-11T23:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-11T23:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-11T23:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-12T00:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-12T00:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-12T00:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-12T00:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-12T01:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-12T01:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-12T01:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-12T01:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-12T02:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-12T02:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-12T02:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-12T02:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-12T03:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-12T03:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-12T03:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-12T03:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-12T04:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-12T04:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-12T04:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-12T04:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-12T05:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-12T05:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-12T05:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-12T05:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-12T06:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-12T06:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-12T06:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-12T06:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-12T07:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-12T07:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-12T07:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-12T07:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-12T08:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-12T08:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-12T08:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=0 faults=0
+2026-11-12T08:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-12T09:13:01Z ERROR supervisor child=gt-sensor-light pid=14087 died signal=9
+2026-11-12T09:13:01Z INFO supervisor child=gt-sensor-light restart=1 delay=1s
+2026-11-12T09:13:02Z INFO supervisor start child=gt-sensor-light pid=100272
+2026-11-12T09:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=10 restarts=0 faults=0
+2026-11-12T09:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-12T09:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=starting degraded=0 rss_kb=1168 fds=6 restarts=1 faults=1
+2026-11-12T09:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-12T09:14:02Z INFO supervisor child=gt-sensor-light state=running
+2026-11-12T10:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-12T10:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-12T10:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1168 fds=7 restarts=1 faults=1
+2026-11-12T10:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-12T11:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-12T11:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-12T11:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1168 fds=7 restarts=1 faults=1
+2026-11-12T11:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-12T12:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-12T12:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-12T12:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1168 fds=7 restarts=1 faults=1
+2026-11-12T12:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-12T13:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-12T13:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-12T13:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1168 fds=7 restarts=1 faults=1
+2026-11-12T13:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-12T14:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-12T14:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-12T14:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1168 fds=7 restarts=1 faults=1
+2026-11-12T14:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-12T15:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-12T15:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-12T15:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1168 fds=7 restarts=1 faults=1
+2026-11-12T15:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-12T16:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-12T16:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-12T16:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1168 fds=7 restarts=1 faults=1
+2026-11-12T16:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-12T17:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-12T17:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-12T17:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1168 fds=7 restarts=1 faults=1
+2026-11-12T17:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-12T18:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-12T18:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-12T18:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1168 fds=7 restarts=1 faults=1
+2026-11-12T18:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-12T19:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-12T19:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-12T19:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1168 fds=7 restarts=1 faults=1
+2026-11-12T19:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-12T20:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-12T20:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-12T20:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1168 fds=7 restarts=1 faults=1
+2026-11-12T20:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-12T21:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-12T21:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-12T21:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1168 fds=7 restarts=1 faults=1
+2026-11-12T21:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-12T22:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-12T22:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-12T22:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1168 fds=7 restarts=1 faults=1
+2026-11-12T22:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-12T23:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-12T23:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-12T23:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1168 fds=7 restarts=1 faults=1
+2026-11-12T23:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-13T00:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-13T00:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-13T00:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1168 fds=7 restarts=1 faults=1
+2026-11-13T00:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-13T01:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-13T01:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-13T01:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1168 fds=7 restarts=1 faults=1
+2026-11-13T01:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-13T02:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-13T02:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-13T02:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1168 fds=7 restarts=1 faults=1
+2026-11-13T02:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-13T03:13:14Z INFO supervisor status child=gt-hub alive=1 state=running degraded=0 rss_kb=1616 fds=11 restarts=0 faults=0
+2026-11-13T03:13:14Z INFO supervisor status child=gt-sensor-soil alive=1 state=running degraded=0 rss_kb=1184 fds=7 restarts=1 faults=1
+2026-11-13T03:13:14Z INFO supervisor status child=gt-sensor-light alive=1 state=running degraded=0 rss_kb=1168 fds=7 restarts=1 faults=1
+2026-11-13T03:13:14Z INFO supervisor status child=gt-interface alive=1 state=running degraded=0 rss_kb=1776 fds=6 restarts=0 faults=0
+2026-11-13T03:15:01Z INFO supervisor stopping children=4
+2026-11-13T03:15:01Z INFO supervisor child=gt-hub pid=14085 exited code=0
+2026-11-13T03:15:01Z INFO supervisor child=gt-sensor-soil pid=65831 exited code=0
+2026-11-13T03:15:01Z INFO supervisor child=gt-sensor-light pid=100272 exited code=0
+2026-11-13T03:15:01Z INFO supervisor child=gt-interface pid=14088 exited code=0
+2026-11-13T03:15:01Z INFO supervisor stopped
