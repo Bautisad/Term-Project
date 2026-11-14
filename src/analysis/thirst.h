@@ -23,7 +23,7 @@
 
 #include "record.h"
 
-#define THIRST_DRY_DEFAULT 565u /* draft, uncalibrated: super-dry soil read about 565 */
+#define THIRST_DRY_DEFAULT 450u /* typical STEMMA range: dry (ready to water soon) is 350-450 */
 
 typedef struct thirst_params {
     uint16_t dry_raw;  /* dry at or below this */

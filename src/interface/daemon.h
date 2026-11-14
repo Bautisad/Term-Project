@@ -29,7 +29,7 @@ typedef struct iface_opts {
 } iface_opts;
 
 /* The production settings: GT_CHILD_CTL_FD, 5 s deadline, 5 s refresh, ipc.h's heartbeat
- * interval, IFACE_DIR_DEFAULT, and THIRST_DRY_DEFAULT (565) as the dry threshold. */
+ * interval, IFACE_DIR_DEFAULT, and THIRST_DRY_DEFAULT (450) as the dry threshold. */
 iface_opts iface_opts_default(void);
 
 /* A nonblocking, close-on-exec listening socket on ipv4:port ("0.0.0.0" for every interface,

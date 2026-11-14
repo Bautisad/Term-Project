@@ -44,8 +44,8 @@ typedef struct dry_params {
     double   dry_raw;       /* #26: only used to find where each cycle reaches the dry level */
 } dry_params;
 
-/* Draft: [10 min], [60], [12], [12 h], [6 h], [0.8], DRY_MAX_BUCKETS, dry_raw [565].  60 is
- * about four times the noise.  565 is the uncalibrated "very dry soil" reading (README). */
+/* Draft: [10 min], [60], [12], [12 h], [6 h], [0.8], DRY_MAX_BUCKETS, dry_raw [450].  60 is
+ * about four times the noise.  450 is the top of the typical STEMMA "dry" range, 350-450. */
 void dry_params_default(dry_params* p);
 
 /* #26: the light module reports how long the flag read bright in each record's cycle

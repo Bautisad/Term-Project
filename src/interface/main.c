@@ -4,8 +4,8 @@
  *                      [--refresh-ms N]
  * Started by the supervisor with no arguments: it listens on 0.0.0.0:8080 and reads the store
  * in IFACE_DIR_DEFAULT.  The flags are for running it by hand and for the tests.  --dry N is the
- * soil value at or below which the plant needs water (0..65535, default 565: a draft, not
- * calibrated).  Exit codes are iface_run's, plus GT_EXIT_CONFIG for bad arguments (or an
+ * soil value at or below which the plant needs water (0..65535, default 450, the top of the
+ * typical STEMMA dry range).  Exit codes are iface_run's, plus GT_EXIT_CONFIG for bad arguments (or an
  * address that is not IPv4) and GT_EXIT_FATAL when the port cannot be listened on. */
 #include <errno.h>
 #include <stdio.h>

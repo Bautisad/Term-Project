@@ -151,7 +151,7 @@ Reported by Duke, not pasted: the page loaded on an iPhone in Safari, using the 
 
 **Status: run on the Pi on 2026-11-03.** The `yes`, `no` and `unknown` states each showed as expected in `/status.json`, and `make test` passed on the Pi (30/30). The phone check is thin (see Results). The dry threshold itself is not checked.
 
-What this checks (#43): that `gt-interface --dry N` shows `needs_water` as `yes`, `no` and `unknown` on the Pi, on the fake feeder's data. It does not check the threshold itself. The dry threshold is not calibrated (S1 was not run) and the agreement with a real weight or finger check (C4) is not done, so a pass here says the logic and the page work, not that the flag is right for a plant.
+What this checks (#43): that `gt-interface --dry N` shows `needs_water` as `yes`, `no` and `unknown` on the Pi, on the fake feeder's data. It does not check the threshold itself. The default dry line was 565 when this was run (it is now 450, see README), and the agreement with a real weight or finger check (C4) is not done, so a pass here says the logic and the page work, not that the flag is right for a plant.
 
 ### Steps (Duke runs these on the Pi)
 

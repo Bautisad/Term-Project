@@ -98,7 +98,7 @@ static void fresh_and_valid(void)
     CHECK(has(html, "Readings are fresh and valid"));
     CHECK(has(html, "Raw value 914") && has(html, "5 s ago"));
     CHECK(has(html, "Bright at the end") && has(html, "1234 ms bright"));
-    CHECK(has(html, "No. Soil reading 914, dry line 565 (higher is wetter)."));
+    CHECK(has(html, "No. Soil reading 914, dry line 450 (higher is wetter)."));
     CHECK(!has(html, "Unknown: not enough data") && !has(html, "Yes, water this plant"));
     CHECK(has(html, "draft and has not been calibrated"));
     CHECK(!has(html, "Degraded"));
@@ -106,7 +106,7 @@ static void fresh_and_valid(void)
     CHECK(has(json, "\"state\":\"ok\"") && has(json, "\"reasons\":[]"));
     CHECK(has(json, "\"soil\":{\"raw\":914,\"age_s\":5}"));
     CHECK(has(json, "\"light\":{\"bright\":true,\"bright_ms\":1234,\"age_s\":5}"));
-    CHECK(has(json, "\"needs_water\":\"no\"") && has(json, "\"dry_raw\":565,"));
+    CHECK(has(json, "\"needs_water\":\"no\"") && has(json, "\"dry_raw\":450,"));
     CHECK(has(json, "\"time_until_dry\":null"));
     CHECK(has(html, "<h2>Time until dry</h2>\n<p>Not enough data.</p>"));
 }
@@ -405,11 +405,11 @@ static void needs_water_states(void)
     char      html[HTML_CAP];
 
     /* At or below the dry line is dry; one above is not. */
-    one_record(&a, &v, 500, 0);
-    CHECK(v.state == PAGE_OK && v.water_level_raw == 500 && v.water_dry_raw == THIRST_DRY_DEFAULT);
+    one_record(&a, &v, 400, 0);
+    CHECK(v.state == PAGE_OK && v.water_level_raw == 400 && v.water_dry_raw == THIRST_DRY_DEFAULT);
     water_is(&v, THIRST_NEEDS_WATER, "yes");
     CHECK(page_render_html(html, sizeof html, &v) > 0);
-    CHECK(has(html, "Yes, water this plant. Soil reading 500, dry line 565 (higher is wetter)."));
+    CHECK(has(html, "Yes, water this plant. Soil reading 400, dry line 450 (higher is wetter)."));
     CHECK(has(html, "draft and has not been calibrated"));
     one_record(&a, &v, THIRST_DRY_DEFAULT, 0);
     water_is(&v, THIRST_NEEDS_WATER, "yes");
@@ -418,17 +418,17 @@ static void needs_water_states(void)
 
     /* Hysteresis through the page: stays dry until the reading is 48 above the line. */
     page_acc_init(&a);
-    add(&a, rec(NOW - 40000, 1, 500, 0));
-    add(&a, rec(NOW - 30000, 2, 612, 0));
+    add(&a, rec(NOW - 40000, 1, 400, 0));
+    add(&a, rec(NOW - 30000, 2, 497, 0));
     judge_ok(&a, NOW, &v);
     water_is(&v, THIRST_NEEDS_WATER, "yes");
-    add(&a, rec(NOW - 20000, 3, 613, 0));
+    add(&a, rec(NOW - 20000, 3, 498, 0));
     judge_ok(&a, NOW, &v);
     water_is(&v, THIRST_OK, "no");
-    add(&a, rec(NOW - 10000, 4, 566, 0));
+    add(&a, rec(NOW - 10000, 4, 451, 0));
     judge_ok(&a, NOW, &v);
     water_is(&v, THIRST_OK, "no");
-    add(&a, rec(NOW - 5000, 5, 565, 0));
+    add(&a, rec(NOW - 5000, 5, 450, 0));
     judge_ok(&a, NOW, &v);
     water_is(&v, THIRST_NEEDS_WATER, "yes");
 
@@ -465,14 +465,14 @@ static void needs_water_unknown(void)
     /* Only unusable records. */
     page_acc_init(&a);
     add(&a, rec(NOW - 3000, 1, 0, GT_REC_SOIL_INVALID));
-    add(&a, rec(NOW - 2000, 2, 500, GT_REC_SOIL_STUCK));
-    add(&a, rec(NOW - 1000, 3, 500, GT_REC_TIME_UNSET));
+    add(&a, rec(NOW - 2000, 2, 400, GT_REC_SOIL_STUCK));
+    add(&a, rec(NOW - 1000, 3, 400, GT_REC_TIME_UNSET));
     judge_ok(&a, NOW, &v);
     water_is(&v, THIRST_UNKNOWN, "unknown");
 
     /* The newest record is bad: an older good one does not stand in, dry or wet. */
     for (int dry = 0; dry < 2; dry++) {
-        uint16_t soil = dry ? 500 : 700;
+        uint16_t soil = dry ? 400 : 700;
 
         page_acc_init(&a);
         add(&a, rec(NOW - 10000, 1, soil, 0));
@@ -497,7 +497,7 @@ static void needs_water_unknown(void)
     /* Stale, dry or wet: the plant may have been watered since. */
     for (int dry = 0; dry < 2; dry++) {
         page_acc_init(&a);
-        add(&a, rec(NOW - PAGE_STALE_MS, 1, dry ? 500 : 700, 0));
+        add(&a, rec(NOW - PAGE_STALE_MS, 1, dry ? 400 : 700, 0));
         judge_ok(&a, NOW, &v);
         water_is(&v, dry ? THIRST_NEEDS_WATER : THIRST_OK, dry ? "yes" : "no"); /* exactly 3 min */
         judge_ok(&a, NOW + 1, &v);
@@ -507,11 +507,11 @@ static void needs_water_unknown(void)
 
     /* Dated in the future by more than the page allows. */
     page_acc_init(&a);
-    add(&a, rec(NOW + PAGE_FUTURE_MS, 1, 500, 0));
+    add(&a, rec(NOW + PAGE_FUTURE_MS, 1, 400, 0));
     judge_ok(&a, NOW, &v);
     water_is(&v, THIRST_NEEDS_WATER, "yes");
     page_acc_init(&a);
-    add(&a, rec(NOW + PAGE_FUTURE_MS + 1u, 1, 500, 0));
+    add(&a, rec(NOW + PAGE_FUTURE_MS + 1u, 1, 400, 0));
     judge_ok(&a, NOW, &v);
     CHECK(v.state == PAGE_DEGRADED && (v.reasons & PAGE_R_CLOCK_AHEAD) != 0);
     water_is(&v, THIRST_UNKNOWN, "unknown");
@@ -539,10 +539,10 @@ static void needs_water_on_a_degraded_page(void)
     water_is(&v, THIRST_UNKNOWN, "unknown");
 
     /* Dry and fresh on a degraded page: the alert still shows. */
-    one_record(&a, &v, 500, GT_REC_UNDERVOLT);
+    one_record(&a, &v, 400, GT_REC_UNDERVOLT);
     CHECK(v.state == PAGE_DEGRADED);
     water_is(&v, THIRST_NEEDS_WATER, "yes");
-    one_record(&a, &v, 500, 0);
+    one_record(&a, &v, 400, 0);
     judge(&a, NOW, 0, true, 5ull * 1024 * 1024, &v);
     CHECK(v.state == PAGE_DEGRADED);
     water_is(&v, THIRST_NEEDS_WATER, "yes");
