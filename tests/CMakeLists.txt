@@ -270,6 +270,17 @@ if(UNIX)
   set_tests_properties(soakreport_behavior PROPERTIES TIMEOUT 60)
 endif()
 
+# Ground truth (tools/groundtruth.sh): joins weights and finger checks to a gt-csv export. Clean
+# join, nearest record and ties, the page's flag and hysteresis, the window, skipped records,
+# C4 at 90% / 85% / under 20 checks, --calib-out, CRLF, --dir with a stand-in gt-csv, bad input
+# (exit 1) and bad arguments (exit 2).  Synthetic files only.
+if(UNIX)
+  add_test(NAME groundtruth_behavior
+           COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/groundtruth_test.sh
+                   ${CMAKE_SOURCE_DIR}/tools/groundtruth.sh)
+  set_tests_properties(groundtruth_behavior PROPERTIES TIMEOUT 60)
+endif()
+
 # Log checker: clean and corrupted logs, seq gaps, writer-log and progress checks, and the
 # kill -9 / restart chain with the real feeder.
 if(UNIX AND TARGET gt-logcheck AND TARGET gt-feeder)
