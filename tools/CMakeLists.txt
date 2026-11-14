@@ -40,4 +40,8 @@ if(UNIX AND TARGET gt_store)
   # soilread.sh logs raw soil sensor reads and soilstats.sh judges them (S1-S5). Installed
   # for the Pi, where the sensor is.
   install(PROGRAMS soilread.sh soilstats.sh DESTINATION bin)
+
+  # groundtruth.sh joins hand-made weights and finger checks to the store (C4, and the input of
+  # soilstats.sh calib). Installed for the Pi, where gt-csv and the store are.
+  install(PROGRAMS groundtruth.sh DESTINATION bin)
 endif()
