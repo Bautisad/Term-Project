@@ -209,3 +209,38 @@ None yet.
 
 - Live data: a store written by the hub from the real sensors should read `"source":"live"` with no banner. That needs the hub on the Pi with the real sensors, which has not been run.
 - A directory that holds both fake and live records (`"source":"mixed"`) is covered by tests on the development machine only.
+
+## 2026-11-10 to 2026-11-13: the 48-hour soak on the Pi
+
+**Status: run on the Pi.** Commit 26d9d38 (main), built on the Pi and installed with `cmake --install build --prefix ~/greenthumb`, run by the systemd unit with the real soil and light sensors. Raw files are in `48 Hour Soak Results/`; the store copy and the full journal stay on the Pi (`~/soak/run/`). Duke pasted the output below; nothing here is written from memory.
+
+### Setup (2026-11-10)
+- Clock NTP-synced, `throttled=0x0`, 101 GB free, store absent, user in the `i2c` and `gpio` groups.
+- The journal was volatile (Pi OS ships `/usr/lib/systemd/journald.conf.d/40-rpi-volatile-storage.conf` with `Storage=volatile`). Fixed with `/etc/systemd/journald.conf.d/50-persistent.conf` containing `Storage=persistent`.
+
+### Result (`soakreport.sh`, pasted 2026-11-13)
+- Run: 2026-11-11T03:13:14Z to 2026-11-13T03:15:01Z, 48.03 h. 192 hourly status lines, 48 per child.
+- RSS growth over the run: gt-hub 0 kB, gt-sensor-soil 0, gt-interface 0, gt-sensor-light 0 (1184 to 1168 kB).
+- Open files: soil 7, light 7, interface 6, all constant. Hub 11 in 47 samples and 10 in one.
+- Faults injected by cron: `kill -9` of the soil process at 2026-11-11T21:13:01Z (`died signal=9` +1 s, `state=running` +12 s) and of the light process at 2026-11-12T09:13:01Z (`died signal=9` +0 s, `state=running` +61 s). No other restart, death, exit or `ERROR` line.
+- Stop at 2026-11-13T03:15:01Z: `stopping` once, four `exited code=0`, `stopped` once. Unit `Result=success`, `ExecMainStatus=0`.
+- Store (`gt-logcheck` on `store-copy/store`, copied right after the stop): 2,882 records, `lost=0`, `corrupt=0`, `synthetic=0`.
+- The report's one FAIL: `gt-hub open files changed from 11 to 10 at 2026-11-12T09:13:14Z (restarts=0)`. That sample is 13 s after the light kill. The light process was still `starting` and the hub had logged `client_closed slot=1`; the hub was back at 11 afterwards. Our reading is a closed socket for the dead sensor, not a leak. Andrew has not confirmed it.
+- Pi state after the run: `/` is ext4 `rw,noatime`, 100 GB free, `throttled=0x0`.
+
+### Not covered by this entry
+- The rehearsal run was skipped (Duke's decision).
+- L6 hand run: only part A (pin levels) was done.
+- The 10-minute soil unplug was not done; two `kill -9` injections stand in for the one-injected-fault requirement. S6 is partly run.
+- The Pi was not a bare install. After the run, `systemctl` showed `ssh`, `xrdp`, `wayvnc`, `avahi-daemon`, `bluetooth`, `NetworkManager` and `lightdm` running. Whether all of them were running during the soak was not checked.
+- Duke started the service again on 2026-11-13, after the store was copied, so the live store under `/var/lib/greenthumb/` (files dated 2026-11-13 16:30) holds records from that later start. The figures above come from the copy made at the stop.
+- CPU per process: `cpu.log` (245 lines) is kept; its figures are not summarized here.
+- Hourly event counts: the status line has none (the supervisor has no record counter).
+
+### Findings for Andrew (raw evidence from soak preparation; no diagnosis made)
+- After `i2cdetect -y 1`, the first soil read gave `0xffff`, the second gave `Error: Sending messages failed: Remote I/O error`, and three later reads were fine (0x031d, 0x02ff, 0x030d).
+- A hand-run `gt-sensor-light` stopped with Ctrl-C exited 130 (killed by SIGINT). It may handle only SIGTERM; not verified.
+- In the hand-run L6 setup (a stand-in `gt-hub` on /tmp paths, `gt-sensor-light --window 2000`), the hub logged `message_dropped type=2 slot=0` every 2 s. Not seen in the real service at start. Unexplained.
+- With the DO wire pulled, GPIO17 read `inactive` 3 of 3 times with no chatter in a 3 s sample (lit reads `inactive`, covered reads `active`).
+- The light process took 61 s to reach `state=running` after the kill; the soil process took 12 s.
+- The hub fd count dipped by one for one sample after the light kill (above).
