@@ -157,8 +157,12 @@ static void test_library(void)
     predict_params pp;
     predict_result o;
     double         truth = (900.0 - 0.5 * (OPEN_H * 6 - 1) - 565.0) / 3.0;
+    dry_params     dp;
 
-    CHECK(analysis_run(g_dir, 0, UINT64_MAX, NULL, &r) == 0);
+    /* The fixture is built around a dry line of 565, so say so rather than lean on the default. */
+    dry_params_default(&dp);
+    dp.dry_raw = 565.0;
+    CHECK(analysis_run(g_dir, 0, UINT64_MAX, &dp, &r) == 0);
     CHECK(r.cycles_total == COMPLETE + 1u && r.n_cycles == COMPLETE + 1u);
     for (size_t i = 0; i < r.n_cycles; i++) {
         CHECK(r.cycles[i].reject == DRY_OK);
@@ -255,7 +259,7 @@ static void test_tool(void)
     double truth700 = (900.0 - 0.5 * (OPEN_H * 6 - 1) - 700.0) / 3.0;
 
     /* The whole history, with the clock just after the last record. */
-    (void)snprintf(args, sizeof args, "--dir %s --days 60 --now %llu", g_dir,
+    (void)snprintf(args, sizeof args, "--dir %s --dry 565 --days 60 --now %llu", g_dir,
                    (unsigned long long)(g_last_ts + STEP_MS));
     CHECK(tool(args, out, sizeof out) == 0);
     CHECK(strstr(out, "cycles: 8 found, 8 shown") != NULL);
@@ -298,12 +302,13 @@ static void test_tool(void)
     CHECK(strstr(out, "prediction_withheld reason=no_recent_data have=7 need=3") != NULL);
     CHECK(strstr(out, "prediction_light_withheld reason=no_recent_data have=7 need=5") != NULL);
 
-    /* --compare, default threshold 565: these cycles stop at about 684, so none reached it and
+    /* --compare, default threshold 450: these cycles stop at about 684, so none reached it and
      * there is nothing to compare. */
     (void)snprintf(args, sizeof args, "--dir %s --days 60 --now %llu --compare", g_dir,
                    (unsigned long long)(g_last_ts + STEP_MS));
     CHECK(tool(args, out, sizeof out) == 0);
-    CHECK(strstr(out, "compare: each past dry-down predicted 12 h before it reached 565, from the other cycles") != NULL);
+    CHECK(strstr(out, "dry threshold: 450 (draft, not calibrated)") != NULL); /* the default */
+    CHECK(strstr(out, "compare: each past dry-down predicted 12 h before it reached 450, from the other cycles") != NULL);
     CHECK(strstr(out, "compare paired=0 need=5 soil_median_err_h=0.00 light_median_err_h=0.00 verdict=insufficient") != NULL);
     CHECK(strstr(out, "  compare cycle=") == NULL);
 

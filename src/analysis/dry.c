@@ -16,7 +16,7 @@ void dry_params_default(dry_params* p)
     p->max_gap_ms = 6ull * 3600ull * 1000ull;
     p->min_r2 = 0.8;
     p->max_buckets = DRY_MAX_BUCKETS;
-    p->dry_raw = 565.0;
+    p->dry_raw = 450.0;
 }
 
 /* Written so that a NaN fails every comparison. */

@@ -2,7 +2,14 @@
 
 How a soak is made on the Pi, what to capture, and how the result is judged. It covers DESIGN test P4 (48-hour soak with real sensors) and the real-hardware part of S6 and L6 (fault detection). Duke runs these on the Pi and pastes the output; Andrew reads the evidence and diagnoses anything that looks like hardware.
 
-Nothing in this file has been run on the Pi yet. Where an expected line is given, it comes from the code (`src/supervisor`, `src/sensors`) and the tests, not from a Pi paste.
+The 48-hour run (section 4) was done on the Pi from 2026-11-11 03:13:14Z to 2026-11-13 03:15:01Z, with changes from this plan listed under "As run" below. Where an expected line is given, it comes from the code (`src/supervisor`, `src/sensors`) and the tests unless a section says it was seen on the Pi.
+
+**As run (2026-11-11 to 2026-11-13).** The plan below is kept as written. The differences:
+- The section 3 rehearsal was skipped, by Duke's decision. The gate "PASS before the real run" was not met.
+- The L6 hand run (section 2) stopped part way: only part A (pin levels) was done. Part B was not.
+- The soil unplug was dropped. Two `kill -9` injections were run: the soil process at T+18 h and the light process at T+30 h. The marks are in `marks.log`.
+- Cron on the Pi wrote the marks and sent the kills, and an hourly job sampled CPU and RSS into `cpu.log`. The orderly stop was a root cron job set one minute past T+48 h, so the report's run-length check passes.
+- The binaries were built natively on the Pi (`cmake --install build --prefix ~/greenthumb`), not copied with `make deploy`.
 
 ## The order
 
@@ -22,7 +29,7 @@ Inside the 48 hours three faults are injected on purpose: one 10-minute soil unp
 
 Everything below runs on the Pi, from the deploy directory, with the unit stopped unless a step says otherwise.
 
-- Binaries and scripts: `~/greenthumb/bin` (from `make deploy`). It holds `gt-supervisor`, `gt-hub`, `gt-sensor-soil`, `gt-sensor-light`, `gt-interface`, `gt-logcheck`, `gt-csv`, `soakmark.sh` and `soakreport.sh`.
+- Binaries and scripts: `~/greenthumb/bin` (from `make deploy`, or from a native build on the Pi, see the README). It holds `gt-supervisor`, `gt-hub`, `gt-sensor-soil`, `gt-sensor-light`, `gt-interface`, `gt-logcheck`, `gt-csv`, `soakmark.sh` and `soakreport.sh`.
 - The unit: `/etc/systemd/system/greenthumb.service`. It runs `gt-supervisor --events /var/lib/greenthumb/events.log --pids /run/greenthumb/children` as `dbautista`; the first file repeats every supervisor log line, and the second lists the children so a restarted supervisor can kill any it left behind. The hub socket is `/run/greenthumb/hub.sock` and the store is `/var/lib/greenthumb/store`. **Both come from the unit. Do not start `gt-supervisor` by hand for a soak or a rehearsal.**
 - Work files: `~/soak/<run name>/`. They are raw evidence, kept on the Pi and not committed (the same rule as the S2/S3 CSVs).
 
@@ -41,9 +48,8 @@ sudo systemctl stop greenthumb; systemctl is-active greenthumb
 
 Expected: `inactive`. Then paste each of these.
 
-1. **Clock.** The Pi has no network time and `soakmark.sh` refuses a clock before 2026. Set it, then show it:
-   `sudo timedatectl set-time "YYYY-MM-DD HH:MM:SS"` (the time is read in the Pi's time zone), then `timedatectl` and `date -u`.
-2. **Journal kept on disk.** `ls /var/log/journal` must list a directory, and `journalctl --disk-usage` must answer. If `/var/log/journal` does not exist, the journal is in RAM and a reboot loses it: set `Storage=persistent` in `/etc/systemd/journald.conf`, run `sudo systemctl restart systemd-journald`, and tell Andrew.
+1. **Clock.** `soakmark.sh` refuses a clock before 2026. The Pi normally has network time (it was NTP-synced on 2026-11-10), so show `timedatectl` and `date -u` and check `System clock synchronized: yes`. Only if it is not synced, set it by hand: `sudo timedatectl set-time "YYYY-MM-DD HH:MM:SS"` (the time is read in the Pi's time zone), then show it again.
+2. **Journal kept on disk.** `ls /var/log/journal` must list a directory, and `journalctl --disk-usage` must answer. If `/var/log/journal` does not exist, the journal is in RAM and a reboot loses it. Pi OS ships `/usr/lib/systemd/journald.conf.d/40-rpi-volatile-storage.conf` with `Storage=volatile`, and that overrides `/etc/systemd/journald.conf`, so editing the main file alone is not enough. Add a later drop-in, `/etc/systemd/journald.conf.d/50-persistent.conf` containing `[Journal]` and `Storage=persistent`, run `sudo systemctl restart systemd-journald`, and tell Andrew. This was the case on 2026-11-10 and was fixed this way.
 3. **Groups.** `getent group i2c gpio` must print both lines.
 4. **Power.** `vcgencmd get_throttled` must say `throttled=0x0`.
 5. **Disk.** `df -h /var/lib/greenthumb ~` shows free space.
@@ -84,7 +90,7 @@ $B/gt-hub --sock /tmp/gt-l6.sock --store /tmp/gt-l6-store 2>&1 | tee hub.log &  
 $B/gt-sensor-light --hub /tmp/gt-l6.sock --window 2000 --stuck 120000 2>&1 | tee light.log   # terminal B
 ```
 
-By hand the processes log `WARN ... no control socket on fd 3: running without heartbeats`. That is expected. The hub may also log that the soil sensor is silent, because soil is not started in this run.
+By hand the processes log `WARN ... no control socket on fd 3: running without heartbeats`. That is expected. The hub may also log that the soil sensor is silent, because soil is not started in this run. On the Pi on 2026-11-10 the hub also logged `message_dropped type=2 slot=0` every 2 s in this setup. That is unexplained and was not seen in the real service at start.
 
 `--stuck 120000` is 2 minutes. Every phase below must be shorter than that since the last change, until the disconnect step.
 
@@ -95,7 +101,7 @@ By hand the processes log `WARN ... no control socket on fd 3: running without h
 3. Uncover, hold 30 s. Expect no `WARN` line.
 4. Disconnect the DO wire and hold at least 150 s. Expect `WARN light status=0x01 level=.. edges=.. seq=..` within about 2 minutes (sooner if the floating pin chatters). Paste the level and edges it shows.
 5. Reconnect the wire, then cover and uncover once. Expect `INFO light status=0x00 ...`. A recovery needs a change in the level, so reconnecting alone may stay INVALID if the level did not change. Say which happened.
-6. Ctrl-C the light process, then the hub. Both must exit 0 (`echo $?`).
+6. Ctrl-C the light process, then the hub. Both must exit 0 (`echo $?`). (On the Pi on 2026-11-10 a hand-run `gt-sensor-light` exited 130 on Ctrl-C, killed by SIGINT. It may handle only SIGTERM. Unverified, and for Andrew to weigh; the expectation here is unchanged.)
 7. Show what the hub stored: `$B/gt-csv --dir /tmp/gt-l6-store`. Look at `light_valid` for the rows from steps 1 to 3 (expect valid, with `light` 0 for the covered period) and for the disconnect (expect not valid).
 
 Paste: the `gpioget` reads, `light.log`, `hub.log`, the CSV, and the exit codes. Clean up: `rm -rf /tmp/gt-l6-store /tmp/gt-l6.sock`.
@@ -157,6 +163,8 @@ About a minute later, `journalctl -u greenthumb --since "-2min" --no-pager` must
 | T+18 h | kill the soil process | `$B/soakmark.sh marks.log kill_soil && sudo pkill -9 -x gt-sensor-soil` |
 | T+30 h | kill the light process | `$B/soakmark.sh marks.log kill_light && sudo pkill -9 -x gt-sensor-light` |
 | T+48 h | orderly stop | `$B/soakmark.sh marks.log stop && sudo systemctl stop greenthumb` |
+
+As run: the T+6 h unplug was not done. The soil kill was at T+18 h (`2026-11-11T21:13:01Z`), the light kill at T+30 h (`2026-11-12T09:13:01Z`) and the stop at `2026-11-13T03:15:01Z`, all from cron. The report may therefore flag a missing `soil_unplug` mark; that is expected.
 
 `soakmark.sh` writes `<UTC time>Z label` to `marks.log` and echoes the line. It refuses a second `start` or `stop`, a `soil_unplug_end` with no open start, and a clock before 2026. Paste each echoed line.
 

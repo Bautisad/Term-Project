@@ -44,7 +44,7 @@ may live there.
 
 ## Project status
 
-This repository currently contains only planning documentation (`PROBLEMMEMO.md`) for a CS370 term project. No source code, build system, or tests exist yet. There are no build/lint/test commands to run at this stage — when code is added, this file should be updated with the relevant commands.
+This project status is complete. 48 Hour soak has been accomplished.
 
 ## Project overview
 

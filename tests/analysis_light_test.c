@@ -436,8 +436,12 @@ static void test_from_records(void)
     lightadj_result     o;
     lightadj_backtest_result b;
     uint64_t            now;
+    dry_params          dp;
 
-    CHECK(dry_acc_init(&g_acc, NULL) == 0);
+    /* The fixture is built around a dry line of 565, so say so rather than lean on the default. */
+    dry_params_default(&dp);
+    dp.dry_raw = 565.0;
+    CHECK(dry_acc_init(&g_acc, &dp) == 0);
     g_t = NOW;
     for (int k = 0; k < 7; k++) {
         double rate = -(2.0 + 0.5 * light[k]);
@@ -540,7 +544,7 @@ static void test_invalid_light(void)
         dry_acc    a;
 
         dry_params_default(&p);
-        CHECK(p.dry_raw == 565.0);
+        CHECK(p.dry_raw == 450.0);
         p.dry_raw = NAN;
         errno = 0;
         CHECK(dry_acc_init(&a, &p) == -1 && errno == EINVAL);
