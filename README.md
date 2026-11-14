@@ -262,8 +262,7 @@ These are the parts still to come. The issue numbers are on the repository's iss
 - The 48-hour soak results: the soak ran on the Pi (`systemd/greenthumb.service` installed, real sensors, one injected `kill -9` per sensor, clean stop), but `tools/soakreport.sh` has not been run on the capture and the results are not recorded yet (`make soakcheck` still drives the feeder)
 - Supervisor: the `events.log` file (`--events`) and killing orphaned children at start (`--pids`) were enabled in the soak's service file; their output has not been checked against the capture yet
 - Analysis: dry-down detection and time-until-dry (#27) is written and tested on synthetic data, and still has to be run on real recorded history; the light-adjusted prediction and its C3 comparison (#26) are written and tested on synthetic data, and still need at least 5 real dry-downs
-- Checking the "needs water" state on the LAN page against 20 real weight or finger tests (C4, #43): it is built and tested, but that check has not been done
-- Sensor calibration tests and crash-safety runs (#32, #29, #30, #31)
+- Crash-safety runs (#29, #30, #31)
 
 ## More reading
 
