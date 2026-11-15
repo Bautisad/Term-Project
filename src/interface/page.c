@@ -310,6 +310,185 @@ static const char* state_title(page_state s)
     return "No data yet";
 }
 
+/* The soil ranges of the table and the colors of the box.  Drafts, from the typical readings of
+ * the Adafruit STEMMA sensor (open air 200-300, very dry 300-350, dry 350-450, moist 450-750,
+ * wet 750 and up).  A reading of exactly 450 counts as dry, because the needs-water check treats
+ * "at or below the dry line" as dry. */
+#define ROW_WET_MIN      750u
+#define ROW_MOIST_MIN    451u
+#define ROW_DRY_MIN      350u
+#define ROW_VERY_DRY_MIN 300u
+#define N_ROWS           5u
+
+_Static_assert(ROW_MOIST_MIN == THIRST_DRY_DEFAULT + 1u, "the Dry row ends at the default dry line");
+/* The gauge below draws these lines on a 200 to 900 scale (14.3%, 21.4%, 35.7%). */
+_Static_assert(ROW_VERY_DRY_MIN == 300u && ROW_DRY_MIN == 350u && ROW_MOIST_MIN == 451u,
+               "update the gauge colors");
+#define GAUGE_MIN 200u
+#define GAUGE_MAX 900u
+
+/* Which row of the table a soil reading falls in: 0 wet, 1 moist, 2 dry, 3 very dry, 4 open air. */
+static size_t soil_row(uint16_t raw)
+{
+    if (raw >= ROW_WET_MIN) {
+        return 0;
+    }
+    if (raw >= ROW_MOIST_MIN) {
+        return 1;
+    }
+    if (raw >= ROW_DRY_MIN) {
+        return 2;
+    }
+    return raw >= ROW_VERY_DRY_MIN ? 3 : 4;
+}
+
+/* The colored box.  Green needs the needs-water check to say OK, so a state the page cannot
+ * vouch for is never green.  Yellow, red and black only appear while the check says the soil
+ * is dry (including the margin above the dry line), and say how dry by the reading it rests on. */
+typedef enum box_kind { BOX_UNKNOWN, BOX_GREEN, BOX_YELLOW, BOX_RED, BOX_BLACK } box_kind;
+
+static box_kind box_of(const page_view* v)
+{
+    if (v->water == THIRST_UNKNOWN) {
+        return BOX_UNKNOWN;
+    }
+    if (v->water == THIRST_OK) {
+        return BOX_GREEN;
+    }
+    if (v->water_level_raw < ROW_VERY_DRY_MIN) {
+        return BOX_BLACK;
+    }
+    return v->water_level_raw < ROW_DRY_MIN ? BOX_RED : BOX_YELLOW;
+}
+
+/* The page's look: one inline style sheet and one inline picture, so nothing is fetched from
+ * anywhere (the product makes no network calls).  The picture has no xmlns attribute: HTML does
+ * not need it, and the no-network check refuses the address in it. */
+static const char HTML_HEAD[] =
+    "<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n"
+    "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n"
+    "<meta http-equiv=\"refresh\" content=\"30\"><title>Green Thumb</title>\n"
+    "<style>"
+    ":root{--bg:#f3f6f1;--card:#fff;--ink:#1c2a21;--mut:#5d6e63;--line:#dfe6dc;--hi:#e4f2e6;"
+    "--g:#2e9d57;--y:#f0b400;--r:#d4372a;--k:#101010;--n:#79837c}"
+    "@media(prefers-color-scheme:dark){:root{--bg:#0f1511;--card:#19211c;--ink:#e5eee7;"
+    "--mut:#9db0a2;--line:#2a352d;--hi:#24382a}}"
+    "*{box-sizing:border-box}"
+    "body{font:16px/1.5 system-ui,-apple-system,\"Segoe UI\",Roboto,sans-serif;background:var(--bg);"
+    "color:var(--ink);max-width:34rem;margin:0 auto;padding:1rem}"
+    "h1{font-size:1.7rem;margin:.2rem 0 1rem;letter-spacing:-.02em}"
+    "h2{font-size:1.05rem;margin:0 0 .4rem}p{margin:.4rem 0}"
+    ".card{background:var(--card);border:1px solid var(--line);border-radius:1rem;"
+    "padding:1rem;margin:0 0 1rem;box-shadow:0 1px 3px rgba(0,0,0,.06)}"
+    ".hero{display:flex;gap:1rem;align-items:center}.plant{width:7.5rem;flex:none}"
+    ".box{flex:1;border-radius:1rem;padding:1rem;color:#fff;display:flex;flex-direction:column}"
+    ".box b{font-size:1.5rem;line-height:1.25}.ico{font-size:1.6rem;line-height:1}"
+    ".green{background:var(--g)}.yellow{background:var(--y);color:#2a2100}.red{background:var(--r)}"
+    ".black{background:var(--k);border:2px solid #6b6b6b}.unknown{background:var(--n)}"
+    ".warn{background:#fff4d6;color:#4a3500;border-left:.35rem solid var(--y);"
+    "padding:.6rem .8rem;border-radius:.5rem;margin:0 0 1rem}"
+    ".state{padding:.5rem .75rem;border-radius:.4rem;font-weight:bold;margin:0}"
+    ".ok{background:#d8f0d8;color:#12331a}.degraded{background:#f6d6d6;color:#4a1010}"
+    ".no_data{background:#e6e6e6;color:#222}.needs{background:#f6e0a8;color:#5a3a00}"
+    ".fake{background:#222;color:#fff;padding:.5rem .75rem;border-radius:.4rem}"
+    ".gauge{position:relative;height:.8rem;border-radius:.4rem;margin:1rem 0 .4rem;"
+    "outline:1px solid var(--mut);"
+    "background:linear-gradient(90deg,var(--k) 0 14.3%,var(--r) 0 21.4%,var(--y) 0 35.7%,var(--g) 0)}"
+    ".gauge i{position:absolute;top:-.3rem;width:.3rem;height:1.4rem;margin-left:-.15rem;"
+    "background:var(--ink);border:2px solid var(--card);border-radius:.2rem}"
+    "table{width:100%;border-collapse:collapse}"
+    "th,td{text-align:left;padding:.4rem .5rem;border-bottom:1px solid var(--line)}"
+    "tr.here{background:var(--hi);font-weight:bold}.mut{color:var(--mut);font-size:.9rem}"
+    "ul{padding-left:1.2rem;margin:.3rem 0}"
+    "</style></head><body>\n<h1>Green Thumb</h1>\n";
+
+static const char PLANT_SVG[] =
+    "<svg class=\"plant\" viewBox=\"0 0 120 150\" role=\"img\" aria-label=\"Potted plant\">"
+    "<path d=\"M60 96C60 74 58 54 60 30\" stroke=\"#2f7d3c\" stroke-width=\"4\" fill=\"none\" "
+    "stroke-linecap=\"round\"/>"
+    "<path d=\"M60 82C40 80 22 68 20 46C42 46 58 60 60 82Z\" fill=\"#43a35a\"/>"
+    "<path d=\"M60 68C80 66 98 54 100 32C78 32 62 46 60 68Z\" fill=\"#58b86d\"/>"
+    "<path d=\"M60 48C48 44 40 32 42 16C56 20 62 34 60 48Z\" fill=\"#3d9b52\"/>"
+    "<path d=\"M60 32C70 26 78 16 76 4C64 8 58 20 60 32Z\" fill=\"#6cc880\"/>"
+    "<path d=\"M30 100H90L82 144H38Z\" fill=\"#c9693c\"/>"
+    "<rect x=\"26\" y=\"90\" width=\"68\" height=\"14\" rx=\"4\" fill=\"#d9794b\"/>"
+    "<ellipse cx=\"60\" cy=\"91\" rx=\"30\" ry=\"3\" fill=\"#5a3b26\"/></svg>\n";
+
+/* The picture with the colored box beside it; an unknown state also gets a warning. */
+static void put_hero(out* o, const page_view* v)
+{
+    static const char* const WORD[] = {"unknown", "green", "yellow", "red", "black"};
+    static const struct {
+        const char* icon;
+        const char* title;
+        const char* line;
+    } TEXT[] = {
+        {"?", "Unknown", "Cannot tell whether this plant needs water"},
+        {"&#10004;", "Good", "No water needed"},
+        {"&#9888;", "Dry", "Water soon"},
+        {"&#9888;", "Very dry", "Water now"},
+        {"&#9888;", "Extremely dry", "Check that the sensor is in the soil"},
+    };
+    box_kind k = box_of(v);
+
+    put(o, "<section class=\"card hero\">\n%s", PLANT_SVG);
+    put(o, "<div class=\"box %s\" role=\"status\"><span class=\"ico\">%s</span><b>%s</b>"
+           "<span>%s</span></div>\n</section>\n",
+        WORD[k], TEXT[k].icon, TEXT[k].title, TEXT[k].line);
+    if (k == BOX_UNKNOWN) {
+        put(o, "<p class=\"warn\">&#9888; Warning: this page cannot tell whether the plant needs "
+               "water. Do not assume it is fine. The notes below say why.</p>\n");
+    }
+}
+
+/* A bar from very dry to wet with a marker at the reading, drawn on a 200 to 900 scale. */
+static void put_gauge(out* o, uint16_t raw)
+{
+    unsigned r = raw < GAUGE_MIN ? GAUGE_MIN : raw;
+
+    r = r > GAUGE_MAX ? GAUGE_MAX : r;
+    put(o, "<div class=\"gauge\" role=\"img\" aria-label=\"Soil reading %u, from dry on the left to "
+           "wet on the right\"><i style=\"left:%u%%\"></i></div>\n",
+        (unsigned)raw, (r - GAUGE_MIN) * 100u / (GAUGE_MAX - GAUGE_MIN));
+}
+
+static void put_row(out* o, bool here, const char* name, const char* range, const char* box)
+{
+    put(o, "<tr%s><th scope=\"row\">%s</th><td>%s</td><td>%s</td></tr>\n",
+        here ? " class=\"here\"" : "", name, range, box);
+}
+
+/* The ranges, with the row of the newest valid soil value marked. */
+static void put_table(out* o, const page_view* v)
+{
+    size_t here = v->soil_known ? soil_row(v->soil_raw) : N_ROWS;
+    char   r[4][24];
+
+    (void)snprintf(r[0], sizeof r[0], "%u and up", ROW_WET_MIN);
+    (void)snprintf(r[1], sizeof r[1], "%u to %u", ROW_MOIST_MIN, ROW_WET_MIN - 1u);
+    (void)snprintf(r[2], sizeof r[2], "%u to %u", ROW_DRY_MIN, ROW_MOIST_MIN - 1u);
+    (void)snprintf(r[3], sizeof r[3], "%u to %u", ROW_VERY_DRY_MIN, ROW_DRY_MIN - 1u);
+    put(o, "<section class=\"card\">\n<h2>Soil moisture ranges</h2>\n");
+    if (v->soil_known) {
+        put(o, "<p>Your reading: %u (higher is wetter), read ", (unsigned)v->soil_raw);
+        put_age(o, v->soil_age_ms);
+        put(o, " ago.</p>\n");
+    }
+    put(o, "<table>\n<tr><th scope=\"col\">Level</th><th scope=\"col\">Reading</th>"
+           "<th scope=\"col\">Box</th></tr>\n");
+    put_row(o, here == 0, "Wet", r[0], "Green");
+    put_row(o, here == 1, "Moist", r[1], "Green");
+    put_row(o, here == 2, "Dry", r[2], "Yellow");
+    put_row(o, here == 3, "Very dry", r[3], "Red");
+    (void)snprintf(r[0], sizeof r[0], "below %u", ROW_VERY_DRY_MIN);
+    put_row(o, here == 4, "Open air", r[0], "Black");
+    put(o, "</table>\n<p class=\"mut\">The box is green only when the needs-water check says the "
+           "soil is OK. After a dry spell it stays yellow until the reading is clearly above the "
+           "dry line, so it can lag this table. Below %u is what the sensor reads in open air.</p>\n"
+           "</section>\n",
+        ROW_VERY_DRY_MIN);
+}
+
 int page_render_html(char* buf, size_t cap, const page_view* v)
 {
     out o = {buf, cap, 0, false};
@@ -317,20 +496,14 @@ int page_render_html(char* buf, size_t cap, const page_view* v)
     if (cap == 0) {
         return -1;
     }
-    put(&o, "<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n"
-            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n"
-            "<meta http-equiv=\"refresh\" content=\"30\"><title>Green Thumb</title>\n"
-            "<style>body{font-family:sans-serif;max-width:32rem;margin:1rem auto;padding:0 1rem}"
-            ".state{padding:.5rem .75rem;border-radius:.4rem;font-weight:bold}"
-            ".ok{background:#d8f0d8}.degraded{background:#f6d6d6}.no_data{background:#e6e6e6}"
-            ".needs{background:#f6e0a8;color:#5a3a00}"
-            ".fake{background:#222;color:#fff;padding:.5rem .75rem;border-radius:.4rem}"
-            "</style></head><body>\n<h1>Green Thumb</h1>\n");
+    put(&o, "%s", HTML_HEAD);
     if (v->source == PAGE_SRC_SYNTHETIC || v->source == PAGE_SRC_MIXED) {
         put(&o, "<p class=\"fake\">SYNTHETIC DATA: %llu of %llu readings in this window came from "
                 "the test feeder (gt-feeder), not from the sensors. Do not treat them as live.</p>\n",
             (unsigned long long)v->synthetic, (unsigned long long)v->records);
     }
+    put_hero(&o, v);
+    put(&o, "<section class=\"card\">\n");
     put(&o, "<p class=\"state %s\">%s</p>\n", page_state_name(v->state), state_title(v->state));
     if (v->reasons != 0) {
         put(&o, "<ul>\n");
@@ -344,8 +517,9 @@ int page_render_html(char* buf, size_t cap, const page_view* v)
         }
         put(&o, "</ul>\n");
     }
+    put(&o, "</section>\n");
 
-    put(&o, "<h2>Needs water</h2>\n");
+    put(&o, "<section class=\"card\">\n<h2>Needs water</h2>\n");
     switch (v->water) {
     case THIRST_NEEDS_WATER:
         put(&o, "<p class=\"state needs\">Yes, water this plant. Soil reading %u, dry line %u "
@@ -363,6 +537,13 @@ int page_render_html(char* buf, size_t cap, const page_view* v)
     if (v->water != THIRST_UNKNOWN) {
         put(&o, "<p>The dry line is a draft and has not been calibrated.</p>\n");
     }
+    if (v->soil_known) {
+        put_gauge(&o, v->soil_raw);
+    }
+    put(&o, "</section>\n");
+    put_table(&o, v);
+
+    put(&o, "<section class=\"card\">\n");
     put(&o, "<h2>Time until dry</h2>\n<p>Not enough data.</p>\n");
 
     put(&o, "<h2>Soil</h2>\n");
@@ -384,6 +565,7 @@ int page_render_html(char* buf, size_t cap, const page_view* v)
         put(&o, "<p>No valid light reading in the last 24 hours.</p>\n");
     }
 
+    put(&o, "</section>\n<section class=\"card\">\n");
     put(&o, "<h2>Last 24 hours</h2>\n<ul>\n<li>%llu readings", (unsigned long long)v->records);
     if (v->have_last) {
         put(&o, ", newest ");
@@ -401,7 +583,7 @@ int page_render_html(char* buf, size_t cap, const page_view* v)
     if (v->disk_known) {
         put(&o, "<li>%llu MB of disk free</li>\n", (unsigned long long)(v->disk_free_bytes >> 20));
     }
-    put(&o, "</ul>\n</body></html>\n");
+    put(&o, "</ul>\n</section>\n</body></html>\n");
     return finish(&o);
 }
 
