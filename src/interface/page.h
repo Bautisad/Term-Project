@@ -7,7 +7,8 @@
  * record with no flag set.  Needs-water comes from thirst.h (a hysteresis around the dry
  * threshold); "no" is only shown while the page itself is PAGE_OK, otherwise it is "unknown".
  * "Yes" is shown whenever thirst.h says so.  The dry threshold is a draft, not calibrated.
- * Time-until-dry is always "not enough data" for now (it needs a long history read). */
+ * The page does not show time-until-dry (the JSON still carries the field, always null for now:
+ * it needs a long history read), and shows no thresholds, only the status. */
 #ifndef GT_PAGE_H
 #define GT_PAGE_H
 

@@ -381,6 +381,12 @@ static const char HTML_HEAD[] =
     ".card{background:var(--card);border:1px solid var(--line);border-radius:1rem;"
     "padding:1rem;margin:0 0 1rem;box-shadow:0 1px 3px rgba(0,0,0,.06)}"
     ".hero{display:flex;gap:1rem;align-items:center}.plant{width:7.5rem;flex:none}"
+    ".light{display:flex;align-items:center;gap:.8rem;margin-top:1rem;padding-top:.8rem;"
+    "border-top:1px solid var(--line)}.sun{width:3.2rem;flex:none}"
+    ".ring{fill:none;stroke:none}"
+    ".light.on .core{filter:drop-shadow(0 0 .4rem #f5b700)}"
+    ".light.off .core,.light.unk .core{opacity:.45;filter:grayscale(1)}"
+    ".light.unk .ring{stroke:var(--mut);stroke-width:2;stroke-dasharray:4 4}"
     ".box{flex:1;border-radius:1rem;padding:1rem;color:#fff;display:flex;flex-direction:column}"
     ".box b{font-size:1.5rem;line-height:1.25}.ico{font-size:1.6rem;line-height:1}"
     ".green{background:var(--g)}.yellow{background:var(--y);color:#2a2100}.red{background:var(--r)}"
@@ -414,6 +420,28 @@ static const char PLANT_SVG[] =
     "<rect x=\"26\" y=\"90\" width=\"68\" height=\"14\" rx=\"4\" fill=\"#d9794b\"/>"
     "<ellipse cx=\"60\" cy=\"91\" rx=\"30\" ry=\"3\" fill=\"#5a3b26\"/></svg>\n";
 
+/* The sun icon: bright when it is light, dim when it is dark, and dim with a dashed ring when the
+ * page cannot say (no valid reading, the newest one invalid, or older than the page's stale limit),
+ * so a missing reading is never drawn as darkness. */
+static const char SUN_SVG[] =
+    "<svg class=\"sun\" viewBox=\"0 0 64 64\" role=\"img\" aria-label=\"Sun\">"
+    "<circle class=\"ring\" cx=\"32\" cy=\"32\" r=\"30\"/>"
+    "<g class=\"core\"><path stroke=\"#f5b700\" stroke-width=\"4\" stroke-linecap=\"round\" "
+    "d=\"M32 6V14M32 50V58M6 32H14M50 32H58M13.6 13.6L19.3 19.3M44.7 44.7L50.4 50.4"
+    "M13.6 50.4L19.3 44.7M44.7 19.3L50.4 13.6\"/>"
+    "<circle cx=\"32\" cy=\"32\" r=\"11\" fill=\"#ffd23f\" stroke=\"#f5b700\" stroke-width=\"2\"/>"
+    "</g></svg>";
+
+static void put_light(out* o, const page_view* v)
+{
+    bool        known = v->light_known && v->light_age_ms <= PAGE_STALE_MS &&
+                 (v->reasons & PAGE_R_LIGHT_INVALID) == 0;
+    const char* look = !known ? "unk" : v->light_bright ? "on" : "off";
+    const char* text = !known ? "Unknown" : v->light_bright ? "Bright" : "Dark";
+
+    put(o, "<div class=\"light %s\">%s<b>Light: %s</b></div>\n", look, SUN_SVG, text);
+}
+
 /* The picture with the colored box beside it; an unknown state also gets a warning. */
 static void put_hero(out* o, const page_view* v)
 {
@@ -431,10 +459,12 @@ static void put_hero(out* o, const page_view* v)
     };
     box_kind k = box_of(v);
 
-    put(o, "<section class=\"card hero\">\n%s", PLANT_SVG);
+    put(o, "<section class=\"card\">\n<div class=\"hero\">\n%s", PLANT_SVG);
     put(o, "<div class=\"box %s\" role=\"status\"><span class=\"ico\">%s</span><b>%s</b>"
-           "<span>%s</span></div>\n</section>\n",
+           "<span>%s</span></div>\n</div>\n",
         WORD[k], TEXT[k].icon, TEXT[k].title, TEXT[k].line);
+    put_light(o, v);
+    put(o, "</section>\n");
     if (k == BOX_UNKNOWN) {
         put(o, "<p class=\"warn\">&#9888; Warning: this page cannot tell whether the plant needs "
                "water. Do not assume it is fine. The notes below say why.</p>\n");
@@ -484,7 +514,8 @@ static void put_table(out* o, const page_view* v)
     put_row(o, here == 4, "Open air", r[0], "Black");
     put(o, "</table>\n<p class=\"mut\">The box is green only when the needs-water check says the "
            "soil is OK. After a dry spell it stays yellow until the reading is clearly above the "
-           "dry line, so it can lag this table. Below %u is what the sensor reads in open air.</p>\n"
+           "Dry row, so it can lag this table. Below %u is what the sensor reads in open air. The "
+           "ranges are typical values for this sensor type, not measured for your plant.</p>\n"
            "</section>\n",
         ROW_VERY_DRY_MIN);
 }
@@ -522,20 +553,14 @@ int page_render_html(char* buf, size_t cap, const page_view* v)
     put(&o, "<section class=\"card\">\n<h2>Needs water</h2>\n");
     switch (v->water) {
     case THIRST_NEEDS_WATER:
-        put(&o, "<p class=\"state needs\">Yes, water this plant. Soil reading %u, dry line %u "
-                "(higher is wetter).</p>\n",
-            (unsigned)v->water_level_raw, (unsigned)v->water_dry_raw);
+        put(&o, "<p class=\"state needs\">Yes, water this plant.</p>\n");
         break;
     case THIRST_OK:
-        put(&o, "<p>No. Soil reading %u, dry line %u (higher is wetter).</p>\n",
-            (unsigned)v->water_level_raw, (unsigned)v->water_dry_raw);
+        put(&o, "<p>No, this plant does not need water.</p>\n");
         break;
     case THIRST_UNKNOWN:
         put(&o, "<p>Unknown: not enough data.</p>\n");
         break;
-    }
-    if (v->water != THIRST_UNKNOWN) {
-        put(&o, "<p>The dry line is a draft and has not been calibrated.</p>\n");
     }
     if (v->soil_known) {
         put_gauge(&o, v->soil_raw);
@@ -543,10 +568,7 @@ int page_render_html(char* buf, size_t cap, const page_view* v)
     put(&o, "</section>\n");
     put_table(&o, v);
 
-    put(&o, "<section class=\"card\">\n");
-    put(&o, "<h2>Time until dry</h2>\n<p>Not enough data.</p>\n");
-
-    put(&o, "<h2>Soil</h2>\n");
+    put(&o, "<section class=\"card\">\n<h2>Soil</h2>\n");
     if (v->soil_known) {
         put(&o, "<p>Raw value %u (higher is wetter), read ", (unsigned)v->soil_raw);
         put_age(&o, v->soil_age_ms);

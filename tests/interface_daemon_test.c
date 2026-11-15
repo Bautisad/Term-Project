@@ -438,7 +438,7 @@ static void needs_water_threshold(void)
     (void)get(p.port, "GET /status.json HTTP/1.1\r\n\r\n");
     CHECK(strstr(body(), "\"needs_water\":\"no\",\"dry_raw\":399,") != NULL);
     (void)get(p.port, "GET / HTTP/1.1\r\n\r\n");
-    CHECK(strstr(body(), "No. Soil reading 400, dry line 399") != NULL);
+    CHECK(strstr(body(), "No, this plant does not need water.") != NULL); /* the JSON above has the line */
     CHECK(strstr(body(), "Yes, water this plant") == NULL);
     finish(&p, GT_EXIT_OK);
 

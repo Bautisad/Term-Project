@@ -810,7 +810,7 @@ static void dry_flag(const char* tmp)
         }
         get(port, "GET / HTTP/1.1\r\n\r\n");
         CHECK(status_of() == 200);
-        CHECK(strstr(body(), i == 0 ? "No. Soil reading" : "Yes, water this plant") != NULL);
+        CHECK(strstr(body(), i == 0 ? "No, this plant does not need water." : "Yes, water this plant") != NULL);
         CHECK(kill(pid, SIGTERM) == 0);
         CHECK(wait_exit(pid, WAIT_MS) == GT_EXIT_OK);
         CHECK(close(sv[0]) == 0);
