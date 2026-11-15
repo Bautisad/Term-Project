@@ -843,6 +843,103 @@ static void light_icon(void)
     light_is(&v, "off", "Light: Dark");
 }
 
+/* The one bucket that holds anything, found by searching: -1 when none does. */
+static int bucket_of(const page_acc* a)
+{
+    int found = -1;
+
+    for (size_t i = 0; i < PAGE_HIST_N; i++) {
+        if (a->hist[i].soil_n != 0 || a->hist[i].light_n != 0) {
+            CHECK(found == -1); /* one record, one bucket */
+            found = (int)i;
+        }
+    }
+    return found;
+}
+
+/* One good record at time ts in a fresh accumulator whose window ends at now. */
+static int lands_in(uint64_t now, uint64_t ts)
+{
+    page_acc a;
+
+    page_acc_init(&a);
+    page_acc_set_now(&a, now);
+    add(&a, rec(ts, 1, 700, 0));
+    return bucket_of(&a);
+}
+
+static void history_buckets(void)
+{
+    const uint64_t start = NOW - PAGE_WINDOW_MS;
+    page_acc       a;
+    page_view      v;
+    page_bucket    empty;
+
+    CHECK(PAGE_HIST_BUCKET_MS == 30ull * 60ull * 1000ull);
+
+    /* Off unless asked for: the old callers see no history. */
+    page_acc_init(&a);
+    add(&a, rec(NOW - 1000, 1, 700, 0));
+    CHECK(!a.hist_on && bucket_of(&a) == -1);
+
+    /* Where a record lands, at every edge of the window and of a bucket. */
+    CHECK(lands_in(NOW, start) == 0);
+    CHECK(lands_in(NOW, start - 1) == -1); /* older than the window */
+    CHECK(lands_in(NOW, start + PAGE_HIST_BUCKET_MS - 1) == 0);
+    CHECK(lands_in(NOW, start + PAGE_HIST_BUCKET_MS) == 1);
+    CHECK(lands_in(NOW, NOW - 1000) == (int)PAGE_HIST_N - 1);
+    CHECK(lands_in(NOW, NOW) == (int)PAGE_HIST_N - 1); /* the end itself is in the last bucket */
+    CHECK(lands_in(NOW, NOW + 1) == -1);               /* dated after now */
+    CHECK(lands_in(1000, 0) == 0);                     /* a clock near 1970: the window starts at 0 */
+
+    /* Several samples in one bucket: count, min, max, rounded mean. */
+    page_acc_init(&a);
+    page_acc_set_now(&a, NOW);
+    add(&a, rec(NOW - 3000, 1, 600, 0));
+    add(&a, rec(NOW - 2000, 2, 800, GT_REC_LIGHT_BRIGHT));
+    add(&a, rec(NOW - 1000, 3, 701, 0));
+    CHECK(a.hist[PAGE_HIST_N - 1].soil_n == 3 && a.hist[PAGE_HIST_N - 1].soil_sum == 2101);
+    CHECK(a.hist[PAGE_HIST_N - 1].soil_min == 600 && a.hist[PAGE_HIST_N - 1].soil_max == 800);
+    CHECK(page_bucket_soil_avg(&a.hist[PAGE_HIST_N - 1]) == 700); /* 700.33 */
+    CHECK(a.hist[PAGE_HIST_N - 1].light_n == 3 && a.hist[PAGE_HIST_N - 1].bright_n == 1);
+
+    /* The flags: bad soil leaves the light in, bad light leaves the soil in, an unset clock
+     * leaves both out, and a damaged record moves nothing. */
+    page_acc_init(&a);
+    page_acc_set_now(&a, NOW);
+    add(&a, rec(NOW - 5000, 1, 0, GT_REC_SOIL_INVALID | GT_REC_LIGHT_BRIGHT));
+    add(&a, rec(NOW - 4000, 2, 500, GT_REC_SOIL_STUCK));
+    add(&a, rec(NOW - 3000, 3, 600, GT_REC_LIGHT_INVALID));
+    add(&a, rec(NOW - 2000, 4, 900, GT_REC_TIME_UNSET | GT_REC_LIGHT_BRIGHT));
+    CHECK(page_acc_visit(&(gt_record){.ts_unix_ms = NOW - 1000, .soil_raw = 1}, GT_STORE_REC_CORRUPT,
+                         &a) == 0);
+    CHECK(a.hist[PAGE_HIST_N - 1].soil_n == 1 && a.hist[PAGE_HIST_N - 1].soil_sum == 600);
+    CHECK(a.hist[PAGE_HIST_N - 1].light_n == 2 && a.hist[PAGE_HIST_N - 1].bright_n == 1);
+
+    /* The largest values do not overflow: a full day of 65535 in one bucket. */
+    page_acc_init(&a);
+    page_acc_set_now(&a, NOW);
+    for (uint32_t i = 0; i < 1440; i++) {
+        add(&a, rec(NOW - 1000, i, 65535, 0));
+    }
+    CHECK(a.hist[PAGE_HIST_N - 1].soil_n == 1440 && page_bucket_soil_avg(&a.hist[PAGE_HIST_N - 1]) == 65535);
+
+    /* An empty bucket has no mean. */
+    (void)memset(&empty, 0, sizeof empty);
+    CHECK(page_bucket_soil_avg(&empty) == 0);
+
+    /* The view carries a copy. */
+    page_acc_init(&a);
+    page_acc_set_now(&a, NOW);
+    add(&a, rec(start + PAGE_HIST_BUCKET_MS * 5u, 1, 444, 0));
+    judge_ok(&a, NOW, &v);
+    CHECK(v.hist_on && v.hist_start_ms == start);
+    CHECK(v.hist[5].soil_n == 1 && v.hist[5].soil_min == 444 && v.hist[4].soil_n == 0);
+    page_acc_init(&a);
+    judge_ok(&a, NOW, &v);
+    CHECK(!v.hist_on && v.hist[PAGE_HIST_N - 1].soil_n == 0);
+}
+
 /* Every field at its largest, every reason set, the banner on: the longest page there can be. */
 static void worst_case_view(page_view* v)
 {
@@ -1008,6 +1105,7 @@ int main(void)
     range_table();
     plant_picture();
     light_icon();
+    history_buckets();
     page_is_self_contained();
     source_label();
     names();

@@ -26,6 +26,24 @@
 #define PAGE_FUTURE_MS      (60ull * 1000ull)           /* a record this far ahead of now */
 #define PAGE_LOW_DISK_BYTES (100ull * 1024ull * 1024ull)
 
+/* History for the graphs: the window split into equal buckets, oldest first. */
+#define PAGE_HIST_N         48u
+#define PAGE_HIST_BUCKET_MS (PAGE_WINDOW_MS / PAGE_HIST_N) /* 30 minutes */
+
+/* One bucket of history.  Soil counts only good samples (not INVALID, STUCK or TIME_UNSET, the
+ * set dry.c skips); light counts only samples that are not INVALID or TIME_UNSET. */
+typedef struct page_bucket {
+    uint32_t soil_n;
+    uint16_t soil_min;
+    uint16_t soil_max;
+    uint64_t soil_sum;
+    uint32_t light_n;
+    uint32_t bright_n; /* light samples that were bright at the end of their cycle */
+} page_bucket;
+
+/* The rounded mean soil value of a bucket, or 0 when it has no soil sample. */
+uint16_t page_bucket_soil_avg(const page_bucket* b);
+
 /* The records of the window, boiled down.  Fill it with store_read_range(..., page_acc_visit,
  * &acc) after page_acc_init. */
 typedef struct page_acc {
@@ -51,6 +69,9 @@ typedef struct page_acc {
     uint16_t  light_bright_ms;
     uint64_t  light_ts_ms;
     thirst_acc thirst;       /* needs-water: fed every readable record, oldest first */
+    bool        hist_on;       /* page_acc_set_now was called */
+    uint64_t    hist_start_ms; /* the window is [hist_start_ms, hist_start_ms + PAGE_WINDOW_MS] */
+    page_bucket hist[PAGE_HIST_N];
 } page_acc;
 
 /* Starts empty, with the draft dry threshold THIRST_DRY_DEFAULT. */
@@ -59,6 +80,11 @@ void page_acc_init(page_acc* a);
 /* Sets the dry threshold.  Call it right after page_acc_init, before any record is visited
  * (it clears what the needs-water state has seen). */
 void page_acc_set_dry(page_acc* a, uint16_t dry_raw);
+
+/* Turns the history on, for the window ending at now_ms (wall clock).  Call it before any record
+ * is visited.  Without it the history stays empty.  A record outside the window (older, or dated
+ * after now_ms) is left out of the history; it still counts everywhere else. */
+void page_acc_set_now(page_acc* a, uint64_t now_ms);
 
 /* A gt_store_visit_fn: ctx is a page_acc*.  Always returns 0 (keep reading). */
 int page_acc_visit(const gt_record* rec, gt_store_rec_status status, void* ctx);
@@ -122,6 +148,10 @@ typedef struct page_view {
     /* History notes: facts about the window that do not change the state. */
     uint64_t   records, corrupt, soil_invalid, soil_stuck, light_invalid, undervolt, time_unset;
     uint64_t   gap_events, missing;
+    /* The graphs: a copy of the accumulator's history (all zero when it was off). */
+    bool        hist_on;
+    uint64_t    hist_start_ms;
+    page_bucket hist[PAGE_HIST_N];
 } page_view;
 
 void page_judge(const page_input* in, page_view* v);

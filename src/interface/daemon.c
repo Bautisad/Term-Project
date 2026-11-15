@@ -219,6 +219,7 @@ static void refresh(iface* d, int64_t mono)
     page_acc_init(&a);
     page_acc_set_dry(&a, d->o->dry_raw);
     now_ms = (uint64_t)sensor_clock_ms(CLOCK_REALTIME);
+    page_acc_set_now(&a, now_ms); /* the graphs: the same 24 hours, in buckets */
     /* No upper bound, so a record dated ahead of now is seen and reported as a clock fault. */
     if (store_read_range(d->o->dir, now_ms > PAGE_WINDOW_MS ? now_ms - PAGE_WINDOW_MS : 0, UINT64_MAX,
                          page_acc_visit, &a) < 0) {
