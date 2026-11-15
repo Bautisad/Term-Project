@@ -99,9 +99,9 @@ static void fresh_and_valid(void)
     CHECK(has(html, "Readings are fresh and valid"));
     CHECK(has(html, "Raw value 914") && has(html, "5 s ago"));
     CHECK(has(html, "Bright at the end") && has(html, "1234 ms bright"));
-    CHECK(has(html, "No. Soil reading 914, dry line 450 (higher is wetter)."));
+    CHECK(has(html, "No, this plant does not need water."));
     CHECK(!has(html, "Unknown: not enough data") && !has(html, "Yes, water this plant"));
-    CHECK(has(html, "draft and has not been calibrated"));
+    CHECK(!has(html, "has not been calibrated") && !has(html, "dry line")); /* status only, no numbers */
     CHECK(!has(html, "Degraded"));
     CHECK(page_render_json(json, sizeof json, &v) > 0);
     CHECK(has(json, "\"state\":\"ok\"") && has(json, "\"reasons\":[]"));
@@ -109,7 +109,7 @@ static void fresh_and_valid(void)
     CHECK(has(json, "\"light\":{\"bright\":true,\"bright_ms\":1234,\"age_s\":5}"));
     CHECK(has(json, "\"needs_water\":\"no\"") && has(json, "\"dry_raw\":450,"));
     CHECK(has(json, "\"time_until_dry\":null"));
-    CHECK(has(html, "<h2>Time until dry</h2>\n<p>Not enough data.</p>"));
+    CHECK(!has(html, "Time until dry")); /* the page no longer has that section (the JSON still has the field) */
 }
 
 static void stale_boundary(void)
@@ -394,7 +394,7 @@ static void water_is(const page_view* v, thirst_state want, const char* word)
     CHECK(snprintf(needle, sizeof needle, "\"needs_water\":\"%s\"", word) > 0);
     CHECK(has(json, needle));
     CHECK(has(html, "Yes, water this plant") == (want == THIRST_NEEDS_WATER));
-    CHECK(has(html, "No. Soil reading") == (want == THIRST_OK));
+    CHECK(has(html, "No, this plant does not need water.") == (want == THIRST_OK));
     CHECK(has(html, "Unknown: not enough data") == (want == THIRST_UNKNOWN));
     CHECK(has(html, "class=\"state needs\"") == (want == THIRST_NEEDS_WATER));
 }
@@ -404,14 +404,15 @@ static void needs_water_states(void)
     page_acc  a;
     page_view v;
     char      html[HTML_CAP];
+    char      json[HTML_CAP];
 
     /* At or below the dry line is dry; one above is not. */
     one_record(&a, &v, 400, 0);
     CHECK(v.state == PAGE_OK && v.water_level_raw == 400 && v.water_dry_raw == THIRST_DRY_DEFAULT);
     water_is(&v, THIRST_NEEDS_WATER, "yes");
     CHECK(page_render_html(html, sizeof html, &v) > 0);
-    CHECK(has(html, "Yes, water this plant. Soil reading 400, dry line 450 (higher is wetter)."));
-    CHECK(has(html, "draft and has not been calibrated"));
+    CHECK(has(html, "Yes, water this plant.") && !has(html, "dry line"));
+    CHECK(!has(html, "has not been calibrated"));
     one_record(&a, &v, THIRST_DRY_DEFAULT, 0);
     water_is(&v, THIRST_NEEDS_WATER, "yes");
     one_record(&a, &v, THIRST_DRY_DEFAULT + 1u, 0);
@@ -440,7 +441,8 @@ static void needs_water_states(void)
     judge_ok(&a, NOW, &v);
     water_is(&v, THIRST_NEEDS_WATER, "yes");
     CHECK(v.water_dry_raw == 700);
-    CHECK(page_render_html(html, sizeof html, &v) > 0 && has(html, "dry line 700"));
+    CHECK(page_render_json(json, sizeof json, &v) > 0 && has(json, "\"dry_raw\":700,"));
+    CHECK(page_render_html(html, sizeof html, &v) > 0 && !has(html, "dry line"));
     page_acc_init(&a);
     page_acc_set_dry(&a, 0);
     add(&a, rec(NOW - 5000, 1, 1, 0));
@@ -752,6 +754,7 @@ static void range_table(void)
     judge_ok(&a, NOW, &v);
     CHECK(page_render_html(html, sizeof html, &v) > 0);
     CHECK(count(html, "class=\"here\"") == 0 && has(html, "<table") && has(html, "750 and up"));
+    CHECK(has(html, "typical values for this sensor type, not measured for your plant"));
     CHECK(!has(html, "Your reading:"));
 
     /* The newest soil value is invalid: the last valid one is still the number marked, with its age. */
@@ -779,6 +782,65 @@ static void plant_picture(void)
     page_acc_init(&a);
     judge_ok(&a, NOW, &v);
     CHECK(page_render_html(html, sizeof html, &v) > 0 && has(html, "<svg"));
+}
+
+/* The sun icon shows exactly one of three looks: "on" (bright), "off" (dim, dark) or "unk" (dim and
+ * dashed, the page cannot vouch for the reading), with its words; and the page has two pictures. */
+static void light_is(const page_view* v, const char* look, const char* label)
+{
+    static const char* const LOOKS[] = {"on", "off", "unk"};
+    char                     html[HTML_CAP];
+
+    CHECK(page_render_html(html, sizeof html, v) > 0);
+    for (size_t i = 0; i < sizeof LOOKS / sizeof LOOKS[0]; i++) {
+        char needle[32];
+
+        CHECK(snprintf(needle, sizeof needle, "class=\"light %s\"", LOOKS[i]) > 0);
+        CHECK(has(html, needle) == (strcmp(LOOKS[i], look) == 0));
+    }
+    CHECK(has(html, label));
+    CHECK(count(html, "<svg") == 2);
+    CHECK(has(html, "aria-label=\"Sun\""));
+}
+
+static void light_icon(void)
+{
+    page_acc  a;
+    page_view v;
+
+    one_record(&a, &v, 700, GT_REC_LIGHT_BRIGHT);
+    light_is(&v, "on", "Light: Bright");
+    one_record(&a, &v, 700, 0);
+    light_is(&v, "off", "Light: Dark");
+
+    page_acc_init(&a); /* nothing recorded */
+    judge_ok(&a, NOW, &v);
+    light_is(&v, "unk", "Light: Unknown");
+
+    page_acc_init(&a); /* the newest light value is invalid: an older bright one does not stand in */
+    add(&a, rec(NOW - 10000, 1, 700, GT_REC_LIGHT_BRIGHT));
+    add(&a, rec(NOW - 5000, 2, 700, GT_REC_LIGHT_INVALID));
+    judge_ok(&a, NOW, &v);
+    light_is(&v, "unk", "Light: Unknown");
+
+    page_acc_init(&a); /* too old to say what the light is now, bright or dark */
+    add(&a, rec(NOW - PAGE_STALE_MS, 1, 700, GT_REC_LIGHT_BRIGHT));
+    judge_ok(&a, NOW, &v);
+    light_is(&v, "on", "Light: Bright"); /* exactly 3 minutes is not yet stale */
+    judge_ok(&a, NOW + 1, &v);
+    light_is(&v, "unk", "Light: Unknown");
+    page_acc_init(&a);
+    add(&a, rec(NOW - PAGE_STALE_MS - 1, 1, 700, 0));
+    judge_ok(&a, NOW, &v);
+    light_is(&v, "unk", "Light: Unknown"); /* a dark reading goes unknown too, not just bright */
+
+    /* The icon follows the light only: it does not move the water box. */
+    one_record(&a, &v, 400, GT_REC_LIGHT_BRIGHT);
+    box_is(&v, "yellow");
+    light_is(&v, "on", "Light: Bright");
+    one_record(&a, &v, 400, 0);
+    box_is(&v, "yellow");
+    light_is(&v, "off", "Light: Dark");
 }
 
 /* Every field at its largest, every reason set, the banner on: the longest page there can be. */
@@ -945,6 +1007,7 @@ int main(void)
     unknown_box();
     range_table();
     plant_picture();
+    light_icon();
     page_is_self_contained();
     source_label();
     names();
