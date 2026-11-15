@@ -7,9 +7,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "daemon.h"
 #include "page.h"
 
-#define CHECK(c)                                                                        \
+#define CHECK(c)                                                                       \
     do {                                                                                \
         if (!(c)) {                                                                     \
             (void)fprintf(stderr, "interface_page_test: line %d: %s\n", __LINE__, #c); \
@@ -19,7 +20,7 @@
 
 #define NOW      1700000000000ull
 #define GB       (1024ull * 1024ull * 1024ull)
-#define HTML_CAP 8192u
+#define HTML_CAP IFACE_BODY_CAP /* the daemon's own limit: a page that does not fit it is never served */
 
 static gt_record rec(uint64_t ts, uint32_t seq, uint16_t soil, uint16_t flags)
 {
@@ -548,6 +549,297 @@ static void needs_water_on_a_degraded_page(void)
     water_is(&v, THIRST_NEEDS_WATER, "yes");
 }
 
+/* How many times `needle` is in `text`. */
+static size_t count(const char* text, const char* needle)
+{
+    size_t n = 0;
+    size_t len = strlen(needle);
+
+    for (const char* p = strstr(text, needle); p != NULL; p = strstr(p + len, needle)) {
+        n++;
+    }
+    return n;
+}
+
+/* The page's colored box as one word, or "" when there is not exactly one box. */
+static const char* box_word(const char* html)
+{
+    static const char* const WORDS[] = {"green", "yellow", "red", "black", "unknown"};
+    const char*              found = "";
+    size_t                   boxes = 0;
+
+    for (size_t i = 0; i < sizeof WORDS / sizeof WORDS[0]; i++) {
+        char needle[40];
+
+        CHECK(snprintf(needle, sizeof needle, "class=\"box %s\"", WORDS[i]) > 0);
+        if (has(html, needle)) {
+            found = WORDS[i];
+            boxes++;
+        }
+    }
+    return boxes == 1 ? found : "";
+}
+
+/* The page shows the box `want` with its own words, and none of the other boxes' words. */
+static void box_is(const page_view* v, const char* want)
+{
+    static const struct {
+        const char* word;
+        const char* label;
+    } LABELS[] = {
+        {"green", "No water needed"},
+        {"yellow", "Water soon"},
+        {"red", "Water now"},
+        {"black", "Extremely dry"},
+        {"unknown", "Cannot tell whether this plant needs water"},
+    };
+    char html[HTML_CAP];
+
+    CHECK(page_render_html(html, sizeof html, v) > 0);
+    CHECK(strcmp(box_word(html), want) == 0);
+    for (size_t i = 0; i < sizeof LABELS / sizeof LABELS[0]; i++) {
+        CHECK(has(html, LABELS[i].label) == (strcmp(LABELS[i].word, want) == 0));
+    }
+    CHECK(has(html, "class=\"warn\"") == (strcmp(want, "unknown") == 0));
+}
+
+/* Green only when the needs-water check says OK; the other colors by how dry the reading is. */
+static void box_colors(void)
+{
+    static const struct {
+        uint16_t    soil;
+        const char* want;
+    } T[] = {
+        {65535, "green"}, {750, "green"}, {749, "green"}, {451, "green"},
+        {450, "yellow"},  {400, "yellow"}, {350, "yellow"},
+        {349, "red"},     {325, "red"},    {300, "red"},
+        {299, "black"},   {100, "black"},  {1, "black"},
+    };
+    page_acc  a;
+    page_view v;
+    char      html[HTML_CAP];
+
+    for (size_t i = 0; i < sizeof T / sizeof T[0]; i++) {
+        one_record(&a, &v, T[i].soil, 0);
+        CHECK(v.state == PAGE_OK);
+        box_is(&v, T[i].want);
+    }
+    one_record(&a, &v, 299, 0);
+    CHECK(page_render_html(html, sizeof html, &v) > 0);
+    CHECK(has(html, "Check that the sensor is in the soil"));
+
+    /* Above the line but inside the margin is still not green (the needs-water hysteresis). */
+    page_acc_init(&a);
+    add(&a, rec(NOW - 40000, 1, 400, 0));
+    add(&a, rec(NOW - 30000, 2, 497, 0));
+    judge_ok(&a, NOW, &v);
+    box_is(&v, "yellow");
+    add(&a, rec(NOW - 20000, 3, 498, 0));
+    judge_ok(&a, NOW, &v);
+    box_is(&v, "green");
+    add(&a, rec(NOW - 10000, 4, 451, 0));
+    judge_ok(&a, NOW, &v);
+    box_is(&v, "green");
+    add(&a, rec(NOW - 5000, 5, 450, 0));
+    judge_ok(&a, NOW, &v);
+    box_is(&v, "yellow");
+
+    /* A dry line set by the caller moves the green line; the red and black lines stay. */
+    page_acc_init(&a);
+    page_acc_set_dry(&a, 700);
+    add(&a, rec(NOW - 5000, 1, 650, 0));
+    judge_ok(&a, NOW, &v);
+    box_is(&v, "yellow");
+    page_acc_init(&a);
+    page_acc_set_dry(&a, 700);
+    add(&a, rec(NOW - 5000, 1, 760, 0));
+    judge_ok(&a, NOW, &v);
+    box_is(&v, "green");
+    page_acc_init(&a);
+    page_acc_set_dry(&a, 300);
+    add(&a, rec(NOW - 5000, 1, 400, 0));
+    judge_ok(&a, NOW, &v);
+    box_is(&v, "green"); /* the check says OK, so the box does too */
+    page_acc_init(&a);
+    page_acc_set_dry(&a, 300);
+    add(&a, rec(NOW - 5000, 1, 299, 0));
+    judge_ok(&a, NOW, &v);
+    box_is(&v, "black");
+}
+
+/* Whenever the needs-water state is unknown the page says so: a grey box and a warning, never green. */
+static void unknown_box(void)
+{
+    page_acc  a;
+    page_view v;
+    char      html[HTML_CAP];
+
+    page_acc_init(&a);
+    judge_ok(&a, NOW, &v); /* nothing recorded yet */
+    box_is(&v, "unknown");
+    CHECK(page_render_html(html, sizeof html, &v) > 0);
+    CHECK(has(html, "Do not assume it is fine"));
+
+    for (int dry = 0; dry < 2; dry++) {
+        uint16_t soil = dry ? 400 : 700;
+
+        one_record(&a, &v, soil, 0); /* too old to trust, dry or wet */
+        judge_ok(&a, NOW + PAGE_STALE_MS, &v);
+        CHECK(v.state == PAGE_DEGRADED);
+        box_is(&v, "unknown");
+
+        page_acc_init(&a); /* the newest record is bad: an older good one does not stand in */
+        add(&a, rec(NOW - 10000, 1, soil, 0));
+        add(&a, rec(NOW - 5000, 2, 0, GT_REC_SOIL_INVALID));
+        judge_ok(&a, NOW, &v);
+        box_is(&v, "unknown");
+
+        page_acc_init(&a);
+        add(&a, rec(NOW - 10000, 1, soil, 0));
+        add(&a, rec(NOW - 5000, 2, soil, GT_REC_SOIL_STUCK));
+        judge_ok(&a, NOW, &v);
+        box_is(&v, "unknown");
+    }
+
+    /* Wet and fresh, but the page is degraded for another reason: unknown. */
+    one_record(&a, &v, 700, GT_REC_UNDERVOLT);
+    box_is(&v, "unknown");
+    one_record(&a, &v, 700, 0);
+    judge(&a, NOW, EIO, true, GB, &v);
+    box_is(&v, "unknown");
+    judge(&a, NOW, 0, true, 5ull * 1024 * 1024, &v);
+    box_is(&v, "unknown");
+
+    /* Dry and fresh on a degraded page: the alert still shows, in its own color. */
+    one_record(&a, &v, 400, GT_REC_UNDERVOLT);
+    box_is(&v, "yellow");
+}
+
+/* The range table lists every range and marks the row of the newest valid soil value. */
+static void range_table(void)
+{
+    static const struct {
+        uint16_t    soil;
+        const char* row;
+    } T[] = {
+        {65535, "Wet"},  {800, "Wet"},    {750, "Wet"},       {749, "Moist"},    {600, "Moist"},
+        {451, "Moist"},  {450, "Dry"},    {400, "Dry"},       {350, "Dry"},      {349, "Very dry"},
+        {325, "Very dry"}, {300, "Very dry"}, {299, "Open air"}, {200, "Open air"}, {1, "Open air"},
+    };
+    static const char* const RANGES[] = {"750 and up", "451 to 749", "350 to 450", "300 to 349",
+                                         "below 300"};
+    page_acc  a;
+    page_view v;
+    char      html[HTML_CAP];
+
+    for (size_t i = 0; i < sizeof T / sizeof T[0]; i++) {
+        char needle[64];
+
+        one_record(&a, &v, T[i].soil, 0);
+        CHECK(page_render_html(html, sizeof html, &v) > 0);
+        CHECK(snprintf(needle, sizeof needle, "<tr class=\"here\"><th scope=\"row\">%s</th>", T[i].row) > 0);
+        CHECK(has(html, needle));
+        CHECK(count(html, "class=\"here\"") == 1);
+        CHECK(snprintf(needle, sizeof needle, "Your reading: %u", (unsigned)T[i].soil) > 0);
+        CHECK(has(html, needle));
+        for (size_t r = 0; r < sizeof RANGES / sizeof RANGES[0]; r++) {
+            CHECK(has(html, RANGES[r]));
+        }
+    }
+
+    /* No soil value at all: the table is there, nothing in it is marked. */
+    page_acc_init(&a);
+    judge_ok(&a, NOW, &v);
+    CHECK(page_render_html(html, sizeof html, &v) > 0);
+    CHECK(count(html, "class=\"here\"") == 0 && has(html, "<table") && has(html, "750 and up"));
+    CHECK(!has(html, "Your reading:"));
+
+    /* The newest soil value is invalid: the last valid one is still the number marked, with its age. */
+    page_acc_init(&a);
+    add(&a, rec(NOW - 90000, 1, 880, 0));
+    add(&a, rec(NOW - 30000, 2, 0, GT_REC_SOIL_INVALID));
+    judge_ok(&a, NOW, &v);
+    CHECK(page_render_html(html, sizeof html, &v) > 0);
+    CHECK(has(html, "<tr class=\"here\"><th scope=\"row\">Wet</th>"));
+    CHECK(has(html, "Your reading: 880 (higher is wetter), read 1 min ago."));
+    CHECK(strcmp(box_word(html), "unknown") == 0); /* ... while the box does not trust it */
+}
+
+static void plant_picture(void)
+{
+    page_acc  a;
+    page_view v;
+    char      html[HTML_CAP];
+
+    one_record(&a, &v, 700, 0);
+    CHECK(page_render_html(html, sizeof html, &v) > 0);
+    CHECK(has(html, "<svg") && has(html, "role=\"img\"") && has(html, "aria-label=\"Potted plant\""));
+    CHECK(strstr(html, "<svg") < strstr(html, "class=\"box")); /* the picture, then the box beside it */
+
+    page_acc_init(&a);
+    judge_ok(&a, NOW, &v);
+    CHECK(page_render_html(html, sizeof html, &v) > 0 && has(html, "<svg"));
+}
+
+/* Every field at its largest, every reason set, the banner on: the longest page there can be. */
+static void worst_case_view(page_view* v)
+{
+    (void)memset(v, 0, sizeof *v);
+    v->state = PAGE_DEGRADED;
+    v->source = PAGE_SRC_MIXED;
+    v->reasons = 0x03FFu;
+    v->store_errno = 2147483647;
+    v->records = v->corrupt = v->synthetic = UINT64_MAX;
+    v->soil_invalid = v->soil_stuck = v->light_invalid = UINT64_MAX;
+    v->undervolt = v->time_unset = v->gap_events = v->missing = UINT64_MAX;
+    v->have_last = true;
+    v->age_ms = UINT64_MAX;
+    v->soil_known = true;
+    v->soil_raw = 65535;
+    v->soil_age_ms = UINT64_MAX;
+    v->light_known = true;
+    v->light_bright = true;
+    v->light_bright_ms = 65535;
+    v->light_age_ms = UINT64_MAX;
+    v->water = THIRST_NEEDS_WATER;
+    v->water_level_raw = 65535;
+    v->water_dry_raw = 65535;
+    v->disk_known = true;
+    v->disk_free_bytes = UINT64_MAX;
+}
+
+/* The product makes no network calls, so the page loads nothing: no link, script, image, style
+ * sheet or address of any kind, and it fits the daemon's buffer with room to spare. */
+static void page_is_self_contained(void)
+{
+    static const char* const BANNED[] = {"http://", "https://", "<script", "<link", "<img", " src=",
+                                         "url(",    "@import",  "<a ",     "<iframe", "<form",
+                                         "<object", "<embed",   "xmlns"};
+    page_acc  a;
+    page_view views[5];
+    char      html[HTML_CAP];
+
+    page_acc_init(&a);
+    judge_ok(&a, NOW, &views[0]);
+    one_record(&a, &views[1], 700, 0);
+    one_record(&a, &views[2], 400, GT_REC_SYNTHETIC);
+    one_record(&a, &views[3], 200, GT_REC_UNDERVOLT);
+    worst_case_view(&views[4]);
+
+    for (size_t i = 0; i < sizeof views / sizeof views[0]; i++) {
+        int n = page_render_html(html, sizeof html, &views[i]);
+
+        CHECK(n > 0 && has(html, "<svg") && has(html, "<style"));
+        for (size_t b = 0; b < sizeof BANNED / sizeof BANNED[0]; b++) {
+            CHECK(!has(html, BANNED[b]));
+        }
+        CHECK(has(html, "http-equiv=\"refresh\"")); /* still reloads itself */
+        if (i == 4) {
+            CHECK((size_t)n + 1024u <= sizeof html); /* the longest page leaves 1 KB spare */
+        }
+    }
+}
+
 /* Synthetic data must be labeled, and live data must never be (guardrail: replayed or fake data
  * is labeled on the page). */
 static void source_label(void)
@@ -649,6 +941,11 @@ int main(void)
     needs_water_states();
     needs_water_unknown();
     needs_water_on_a_degraded_page();
+    box_colors();
+    unknown_box();
+    range_table();
+    plant_picture();
+    page_is_self_contained();
     source_label();
     names();
     (void)puts("PASS");
