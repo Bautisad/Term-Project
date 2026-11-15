@@ -244,3 +244,109 @@ None yet.
 - With the DO wire pulled, GPIO17 read `inactive` 3 of 3 times with no chatter in a 3 s sample (lit reads `inactive`, covered reads `active`).
 - The light process took 61 s to reach `state=running` after the kill; the soil process took 12 s.
 - The hub fd count dipped by one for one sample after the light kill (above).
+
+## 2026-11-14 (2026-11-15 UTC): process fault injection on the Pi (DESIGN P3, failure-mode rows 8, 9, 11, 21)
+
+**Status: run on the Pi by hand.** Duke injected each fault once, on the real service started by the stock systemd unit at 2026-11-15T02:52:59Z, and pasted the output. The raw files are in `Hub Kill Results/` (`events.log`, `journal.txt`, and three copies of the store taken during the run: `store-copy`, `store-copy2`, `store-copy3`). The commit that was deployed was not recorded. Spec basis: §3.2 mechanism E ("killing any child at any time; the system must degrade, log, and recover") and §9 (what was injected, what the system did, the log excerpt). The 200-kills-each count and the 5 s and 10 s targets in P3 are our own, not the spec's; see the P3 results in DESIGN.md.
+
+### Before the injections
+`systemctl is-active greenthumb` gave `active`. `pgrep -x -l 'gt-.*'`: supervisor 88107, hub 88111, soil 88112, light 88113, interface 88114.
+
+### Injection 1: hub, `pkill -9 -x gt-hub` (row 11), logged at 02:54:05Z
+```
+2026-11-15T02:54:05Z ERROR supervisor child=gt-hub pid=88111 died signal=9
+2026-11-15T02:54:05Z INFO supervisor child=gt-hub restart=1 delay=1s
+2026-11-15T02:54:06Z INFO supervisor start child=gt-hub pid=88174
+2026-11-15T02:54:06Z INFO store recovered segment=2026-11-15.log dropped_bytes=0 last_seq=10
+2026-11-15T02:54:06Z INFO hub start resumed_seq=11
+2026-11-15T02:54:59Z WARN light hub_send failed errno=32
+2026-11-15T02:54:59Z WARN soil hub_send failed errno=32
+2026-11-15T02:55:21Z WARN hub sensors_silent mask=0x3 seq=11
+2026-11-15T02:55:27Z INFO supervisor child=gt-hub state=running
+2026-11-15T02:55:59Z INFO light hub_send recovered
+2026-11-15T02:55:59Z INFO soil hub_send recovered
+2026-11-15T02:55:59Z INFO hub sensors_silent mask=0x0 seq=12
+```
+- The hub was back as pid 88174; the supervisor, soil, light and interface kept their pids, so the sensors did not restart. Service `active`.
+- Restart delay 1 s. The new hub took 81 s from start to `state=running` (the first start of this run took 20 s: 02:52:59 to 02:53:19). Not explained.
+- The sensors' next send, at 02:54:59, failed with errno 32 (broken pipe) on the old connection, so the readings of that cycle were lost. Record 11 (`2026-11-15T02:55:21.985Z`) has `soil_valid=no` and `light_valid=no`. A hub outage of about 1 s cost one whole minute of both sensors. There is no sequence gap (`lost=0`): the loss shows as an all-invalid record and the `sensors_silent mask=0x3` line.
+- From record 12 (02:55:59) both sensors were valid again.
+
+### Injection 2: LAN page, `pkill -9 -x gt-interface` (row 21), logged at 02:56:56Z
+```
+2026-11-15T02:56:56Z ERROR supervisor child=gt-interface pid=88114 died signal=9
+2026-11-15T02:56:56Z INFO supervisor child=gt-interface restart=1 delay=1s
+2026-11-15T02:56:57Z INFO supervisor start child=gt-interface pid=88319
+2026-11-15T02:56:57Z INFO interface listening addr=0.0.0.0 port=8080
+2026-11-15T02:57:07Z INFO supervisor child=gt-interface state=running
+```
+- `curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8080/` printed `200`. The hub, soil and light kept their pids (88174, 88112, 88113). Service `active`. Restart delay 1 s, 10 s to `state=running`. The `date -u` before the kill was not pasted; the time is from the log.
+
+### Injection 3: soil hang, `pkill -STOP -x gt-sensor-soil` (row 9)
+The time of the freeze was not pasted. The first warning is at 02:58:59Z with `age=30s`, so the freeze was at about 02:58:29Z.
+```
+2026-11-15T02:58:59Z WARN supervisor child=gt-sensor-soil heartbeat_missed age=30s
+2026-11-15T02:59:14Z WARN hub sensors_silent mask=0x1 seq=15
+2026-11-15T02:59:29Z ERROR supervisor child=gt-sensor-soil heartbeat_timeout age=60s signal=SIGTERM
+2026-11-15T02:59:34Z ERROR supervisor child=gt-sensor-soil killed signal=SIGKILL
+2026-11-15T02:59:34Z INFO hub client_closed slot=1 errno=0
+2026-11-15T02:59:34Z ERROR supervisor child=gt-sensor-soil pid=88112 died signal=9
+2026-11-15T02:59:34Z INFO supervisor child=gt-sensor-soil restart=1 delay=1s
+2026-11-15T02:59:35Z INFO supervisor start child=gt-sensor-soil pid=88451
+2026-11-15T02:59:45Z INFO supervisor child=gt-sensor-soil state=running
+```
+- Warning at 30 s, SIGTERM at 60 s, SIGKILL after the 5 s grace, restart after 1 s: freeze to restart about 66 s. The new process was pid 88451; light (88113), hub (88174) and interface (88319) kept their pids. Service `active`.
+- Record 15 (`02:58:59.390Z`) has `soil_valid=no`, light valid.
+- This is a SIGSTOP of the process. It is not a hung I2C bus (row 7).
+
+### What the records looked like after the soil restart (finding)
+After the soil restart the store held two records a minute, each with one sensor missing, and stayed that way until the last copy (`store-copy3`, taken at about 03:17Z, 18 minutes later):
+```
+seq,time_utc,soil_valid,light_valid
+15,2026-11-15T02:58:59.390Z,no,yes   (soil frozen)
+16,2026-11-15T02:59:35.722Z,yes,no
+17,2026-11-15T02:59:59.390Z,no,yes
+18,2026-11-15T03:00:35.731Z,yes,no
+19,2026-11-15T03:00:59.390Z,no,yes
+...
+50,2026-11-15T03:16:35.731Z,yes,no
+51,2026-11-15T03:16:59.389Z,no,yes
+```
+- `store-copy3`: 52 records, seq 0 to 51, `gt-logcheck` `lost=0 corrupt=0 synthetic=0`, PASS. 20 records have the soil invalid and 20 the light invalid. The hub logged `sensors_silent mask=0x1` or `mask=0x2` every 24 s or 36 s throughout.
+- Our reading (from `src/hub/hub_logic.h` and the timestamps; **not confirmed by Andrew**): the hub closes a cycle `HUB_GRACE_MS` = 15 s after the first sensor message. After the restart the soil process sends at about :35 of each minute and the light process at about :59, 24 s apart, so every cycle closes with one sensor missing.
+- The 48-hour soak did not show this: its store had 2,882 records over 48.03 h. Both soak kills were made at second :01 of a minute. Whether that is why the restarted sensor stayed within 15 s of the other was not checked.
+- Consequence: the processes recover, but the data does not return to one complete record a minute after a sensor restarts at an arbitrary moment. A restart of the whole service would put both sensors back in step (not tried).
+
+### The soak's two `kill -9` injections (row 8), from `48 Hour Soak Results/soak-journal.txt`
+Soil, marked `kill_soil` at 2026-11-11T21:13:01Z:
+```
+2026-11-11T21:13:02Z INFO hub client_closed slot=0 errno=0
+2026-11-11T21:13:02Z ERROR supervisor child=gt-sensor-soil pid=14086 died signal=9
+2026-11-11T21:13:02Z INFO supervisor child=gt-sensor-soil restart=1 delay=1s
+2026-11-11T21:13:03Z INFO supervisor start child=gt-sensor-soil pid=65831
+2026-11-11T21:13:13Z INFO supervisor child=gt-sensor-soil state=running
+```
+Light, marked `kill_light` at 2026-11-12T09:13:01Z:
+```
+2026-11-12T09:13:01Z INFO hub client_closed slot=1 errno=0
+2026-11-12T09:13:01Z ERROR supervisor child=gt-sensor-light pid=14087 died signal=9
+2026-11-12T09:13:01Z INFO supervisor child=gt-sensor-light restart=1 delay=1s
+2026-11-12T09:13:02Z INFO supervisor start child=gt-sensor-light pid=100272
+2026-11-12T09:13:18Z WARN hub sensors_silent mask=0x2 seq=1800
+2026-11-12T09:14:02Z INFO supervisor child=gt-sensor-light state=running
+2026-11-12T09:14:03Z INFO hub sensors_silent mask=0x0 seq=1801
+```
+The hub logged no `sensors_silent` line for the soil kill; it did for the light kill, which is the degradation step in that log.
+
+### Not covered by this entry
+- Each fault was injected once. The 200 kills each of soil, light and hub, and any timing distribution (median, p99), were not run.
+- A hung I2C bus (row 7), a crash loop on the real service (row 10), and a kill of the supervisor itself (row 13) were not injected.
+- The freeze time of injection 3 is worked out from the log. `date -u` before injections 2 and 3 was not pasted.
+- The commit that was deployed is not recorded. The Pi was not a bare install (see the soak entry).
+- One line is unexplained: `2026-11-15T03:18:57Z WARN interface conn_timeout state=1 skipped=0`, after all the injections. What connected to port 8080 is not known.
+- The live store under `/var/lib/greenthumb/` holds this run's records. Whether it was moved aside afterwards is not recorded here.
+
+### Findings for Andrew (raw evidence; no diagnosis made)
+- Records stay split in two (one sensor missing each) after a soil restart that lands more than 15 s out of step with the light process; evidence above.
+- A hub restart of about 1 s loses the whole minute of both sensors, because they only find the broken connection on their next send.
+- The hub took 81 s to reach `state=running` after the kill, against 20 s at the first start.

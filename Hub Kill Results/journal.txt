@@ -1,0 +1,82 @@
+2026-11-14T19:52:59-07:00 greenthumb systemd[1]: Started greenthumb.service - Project Green Thumb: supervisor, hub and sensors.
+2026-11-14T19:52:59-07:00 greenthumb gt-supervisor[88107]: 2026-11-15T02:52:59Z INFO supervisor start orphans_killed=0
+2026-11-14T19:52:59-07:00 greenthumb gt-supervisor[88107]: 2026-11-15T02:52:59Z INFO supervisor start child=gt-hub pid=88111
+2026-11-14T19:52:59-07:00 greenthumb gt-supervisor[88107]: 2026-11-15T02:52:59Z INFO supervisor start child=gt-sensor-soil pid=88112
+2026-11-14T19:52:59-07:00 greenthumb gt-supervisor[88107]: 2026-11-15T02:52:59Z INFO supervisor start child=gt-sensor-light pid=88113
+2026-11-14T19:52:59-07:00 greenthumb gt-supervisor[88111]: 2026-11-15T02:52:59Z INFO store recovered segment=2026-11-14.log dropped_bytes=0 last_seq=8
+2026-11-14T19:52:59-07:00 greenthumb gt-supervisor[88111]: 2026-11-15T02:52:59Z INFO hub start resumed_seq=9
+2026-11-14T19:52:59-07:00 greenthumb gt-supervisor[88107]: 2026-11-15T02:52:59Z INFO supervisor start child=gt-interface pid=88114
+2026-11-14T19:52:59-07:00 greenthumb gt-supervisor[88114]: 2026-11-15T02:52:59Z INFO interface listening addr=0.0.0.0 port=8080
+2026-11-14T19:53:09-07:00 greenthumb gt-supervisor[88107]: 2026-11-15T02:53:09Z INFO supervisor child=gt-sensor-soil state=running
+2026-11-14T19:53:09-07:00 greenthumb gt-supervisor[88107]: 2026-11-15T02:53:09Z INFO supervisor child=gt-interface state=running
+2026-11-14T19:53:14-07:00 greenthumb gt-supervisor[88111]: 2026-11-15T02:53:14Z WARN hub sensors_silent mask=0x2 seq=9
+2026-11-14T19:53:14-07:00 greenthumb gt-supervisor[88111]: 2026-11-15T02:53:14Z INFO store segment_created segment=2026-11-15.log
+2026-11-14T19:53:19-07:00 greenthumb gt-supervisor[88107]: 2026-11-15T02:53:19Z INFO supervisor child=gt-hub state=running
+2026-11-14T19:53:59-07:00 greenthumb gt-supervisor[88107]: 2026-11-15T02:53:59Z INFO supervisor child=gt-sensor-light state=running
+2026-11-14T19:53:59-07:00 greenthumb gt-supervisor[88111]: 2026-11-15T02:53:59Z INFO hub sensors_silent mask=0x0 seq=10
+2026-11-14T19:54:05-07:00 greenthumb gt-supervisor[88107]: 2026-11-15T02:54:05Z ERROR supervisor child=gt-hub pid=88111 died signal=9
+2026-11-14T19:54:05-07:00 greenthumb gt-supervisor[88107]: 2026-11-15T02:54:05Z INFO supervisor child=gt-hub restart=1 delay=1s
+2026-11-14T19:54:06-07:00 greenthumb gt-supervisor[88107]: 2026-11-15T02:54:06Z INFO supervisor start child=gt-hub pid=88174
+2026-11-14T19:54:06-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T02:54:06Z INFO store recovered segment=2026-11-15.log dropped_bytes=0 last_seq=10
+2026-11-14T19:54:06-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T02:54:06Z INFO hub start resumed_seq=11
+2026-11-14T19:54:59-07:00 greenthumb gt-supervisor[88113]: 2026-11-15T02:54:59Z WARN light hub_send failed errno=32
+2026-11-14T19:54:59-07:00 greenthumb gt-supervisor[88112]: 2026-11-15T02:54:59Z WARN soil hub_send failed errno=32
+2026-11-14T19:55:21-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T02:55:21Z WARN hub sensors_silent mask=0x3 seq=11
+2026-11-14T19:55:27-07:00 greenthumb gt-supervisor[88107]: 2026-11-15T02:55:27Z INFO supervisor child=gt-hub state=running
+2026-11-14T19:55:59-07:00 greenthumb gt-supervisor[88113]: 2026-11-15T02:55:59Z INFO light hub_send recovered
+2026-11-14T19:55:59-07:00 greenthumb gt-supervisor[88112]: 2026-11-15T02:55:59Z INFO soil hub_send recovered
+2026-11-14T19:55:59-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T02:55:59Z INFO hub sensors_silent mask=0x0 seq=12
+2026-11-14T19:56:56-07:00 greenthumb gt-supervisor[88107]: 2026-11-15T02:56:56Z ERROR supervisor child=gt-interface pid=88114 died signal=9
+2026-11-14T19:56:56-07:00 greenthumb gt-supervisor[88107]: 2026-11-15T02:56:56Z INFO supervisor child=gt-interface restart=1 delay=1s
+2026-11-14T19:56:57-07:00 greenthumb gt-supervisor[88107]: 2026-11-15T02:56:57Z INFO supervisor start child=gt-interface pid=88319
+2026-11-14T19:56:57-07:00 greenthumb gt-supervisor[88319]: 2026-11-15T02:56:57Z INFO interface listening addr=0.0.0.0 port=8080
+2026-11-14T19:57:07-07:00 greenthumb gt-supervisor[88107]: 2026-11-15T02:57:07Z INFO supervisor child=gt-interface state=running
+2026-11-14T19:58:59-07:00 greenthumb gt-supervisor[88107]: 2026-11-15T02:58:59Z WARN supervisor child=gt-sensor-soil heartbeat_missed age=30s
+2026-11-14T19:59:14-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T02:59:14Z WARN hub sensors_silent mask=0x1 seq=15
+2026-11-14T19:59:29-07:00 greenthumb gt-supervisor[88107]: 2026-11-15T02:59:29Z ERROR supervisor child=gt-sensor-soil heartbeat_timeout age=60s signal=SIGTERM
+2026-11-14T19:59:34-07:00 greenthumb gt-supervisor[88107]: 2026-11-15T02:59:34Z ERROR supervisor child=gt-sensor-soil killed signal=SIGKILL
+2026-11-14T19:59:34-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T02:59:34Z INFO hub client_closed slot=1 errno=0
+2026-11-14T19:59:34-07:00 greenthumb gt-supervisor[88107]: 2026-11-15T02:59:34Z ERROR supervisor child=gt-sensor-soil pid=88112 died signal=9
+2026-11-14T19:59:34-07:00 greenthumb gt-supervisor[88107]: 2026-11-15T02:59:34Z INFO supervisor child=gt-sensor-soil restart=1 delay=1s
+2026-11-14T19:59:35-07:00 greenthumb gt-supervisor[88107]: 2026-11-15T02:59:35Z INFO supervisor start child=gt-sensor-soil pid=88451
+2026-11-14T19:59:45-07:00 greenthumb gt-supervisor[88107]: 2026-11-15T02:59:45Z INFO supervisor child=gt-sensor-soil state=running
+2026-11-14T19:59:50-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T02:59:50Z WARN hub sensors_silent mask=0x2 seq=16
+2026-11-14T20:00:14-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:00:14Z WARN hub sensors_silent mask=0x1 seq=17
+2026-11-14T20:00:50-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:00:50Z WARN hub sensors_silent mask=0x2 seq=18
+2026-11-14T20:01:14-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:01:14Z WARN hub sensors_silent mask=0x1 seq=19
+2026-11-14T20:01:50-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:01:50Z WARN hub sensors_silent mask=0x2 seq=20
+2026-11-14T20:02:14-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:02:14Z WARN hub sensors_silent mask=0x1 seq=21
+2026-11-14T20:02:50-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:02:50Z WARN hub sensors_silent mask=0x2 seq=22
+2026-11-14T20:03:14-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:03:14Z WARN hub sensors_silent mask=0x1 seq=23
+2026-11-14T20:03:50-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:03:50Z WARN hub sensors_silent mask=0x2 seq=24
+2026-11-14T20:04:14-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:04:14Z WARN hub sensors_silent mask=0x1 seq=25
+2026-11-14T20:04:50-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:04:50Z WARN hub sensors_silent mask=0x2 seq=26
+2026-11-14T20:05:14-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:05:14Z WARN hub sensors_silent mask=0x1 seq=27
+2026-11-14T20:05:50-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:05:50Z WARN hub sensors_silent mask=0x2 seq=28
+2026-11-14T20:06:14-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:06:14Z WARN hub sensors_silent mask=0x1 seq=29
+2026-11-14T20:06:50-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:06:50Z WARN hub sensors_silent mask=0x2 seq=30
+2026-11-14T20:07:14-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:07:14Z WARN hub sensors_silent mask=0x1 seq=31
+2026-11-14T20:07:50-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:07:50Z WARN hub sensors_silent mask=0x2 seq=32
+2026-11-14T20:08:14-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:08:14Z WARN hub sensors_silent mask=0x1 seq=33
+2026-11-14T20:08:50-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:08:50Z WARN hub sensors_silent mask=0x2 seq=34
+2026-11-14T20:09:14-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:09:14Z WARN hub sensors_silent mask=0x1 seq=35
+2026-11-14T20:09:50-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:09:50Z WARN hub sensors_silent mask=0x2 seq=36
+2026-11-14T20:10:14-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:10:14Z WARN hub sensors_silent mask=0x1 seq=37
+2026-11-14T20:10:50-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:10:50Z WARN hub sensors_silent mask=0x2 seq=38
+2026-11-14T20:11:14-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:11:14Z WARN hub sensors_silent mask=0x1 seq=39
+2026-11-14T20:11:50-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:11:50Z WARN hub sensors_silent mask=0x2 seq=40
+2026-11-14T20:12:14-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:12:14Z WARN hub sensors_silent mask=0x1 seq=41
+2026-11-14T20:12:50-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:12:50Z WARN hub sensors_silent mask=0x2 seq=42
+2026-11-14T20:13:14-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:13:14Z WARN hub sensors_silent mask=0x1 seq=43
+2026-11-14T20:13:50-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:13:50Z WARN hub sensors_silent mask=0x2 seq=44
+2026-11-14T20:14:14-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:14:14Z WARN hub sensors_silent mask=0x1 seq=45
+2026-11-14T20:14:50-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:14:50Z WARN hub sensors_silent mask=0x2 seq=46
+2026-11-14T20:15:14-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:15:14Z WARN hub sensors_silent mask=0x1 seq=47
+2026-11-14T20:15:50-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:15:50Z WARN hub sensors_silent mask=0x2 seq=48
+2026-11-14T20:16:14-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:16:14Z WARN hub sensors_silent mask=0x1 seq=49
+2026-11-14T20:16:50-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:16:50Z WARN hub sensors_silent mask=0x2 seq=50
+2026-11-14T20:17:14-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:17:14Z WARN hub sensors_silent mask=0x1 seq=51
+2026-11-14T20:17:50-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:17:50Z WARN hub sensors_silent mask=0x2 seq=52
+2026-11-14T20:18:14-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:18:14Z WARN hub sensors_silent mask=0x1 seq=53
+2026-11-14T20:18:50-07:00 greenthumb gt-supervisor[88174]: 2026-11-15T03:18:50Z WARN hub sensors_silent mask=0x2 seq=54
+2026-11-14T20:18:57-07:00 greenthumb gt-supervisor[88319]: 2026-11-15T03:18:57Z WARN interface conn_timeout state=1 skipped=0
