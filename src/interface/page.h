@@ -39,6 +39,8 @@ typedef struct page_bucket {
     uint64_t soil_sum;
     uint32_t light_n;
     uint32_t bright_n; /* light samples that were bright at the end of their cycle */
+    uint32_t soil_bad;  /* records with the soil INVALID or STUCK (clock set) */
+    uint32_t light_bad; /* records with the light INVALID (clock set) */
 } page_bucket;
 
 /* The rounded mean soil value of a bucket, or 0 when it has no soil sample. */
@@ -155,6 +157,30 @@ typedef struct page_view {
 } page_view;
 
 void page_judge(const page_input* in, page_view* v);
+
+/* Recent updates, worked out from the history buckets.  Drafts, like the thresholds above. */
+#define PAGE_WATERED_RISE 100u /* soil mean up this much within an hour (two buckets) = watered */
+#define PAGE_EVENTS_MAX   5u   /* how many the page lists */
+
+typedef enum page_event_kind {
+    PAGE_EV_WATERED,   /* from_raw -> to_raw, a rise of at least PAGE_WATERED_RISE */
+    PAGE_EV_WENT_DRY,  /* from above water_dry_raw to at or below it */
+    PAGE_EV_SOIL_BAD,  /* count = soil readings invalid or stuck in the bucket */
+    PAGE_EV_LIGHT_BAD, /* count = light readings invalid in the bucket */
+    PAGE_EV_GAP        /* count = empty buckets just before this one */
+} page_event_kind;
+
+typedef struct page_event {
+    page_event_kind kind;
+    unsigned        bucket; /* index into page_view.hist */
+    uint16_t        from_raw;
+    uint16_t        to_raw;
+    uint32_t        count;
+} page_event;
+
+/* Fills ev (up to cap) newest bucket first; within a bucket in the order of page_event_kind.
+ * Returns how many.  None when the history is off. */
+size_t page_events(const page_view* v, page_event* ev, size_t cap);
 
 const char* page_state_name(page_state s); /* "ok", "degraded" or "no_data" */
 const char* page_source_name(page_source s); /* "none", "live", "synthetic" or "mixed" */

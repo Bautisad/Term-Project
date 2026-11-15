@@ -799,8 +799,7 @@ static void light_is(const page_view* v, const char* look, const char* label)
         CHECK(has(html, needle) == (strcmp(LOOKS[i], look) == 0));
     }
     CHECK(has(html, label));
-    CHECK(count(html, "<svg") == 2);
-    CHECK(has(html, "aria-label=\"Sun\""));
+    CHECK(count(html, "aria-label=\"Sun\"") == 1); /* the sun is drawn once (the page has other pictures) */
 }
 
 static void light_icon(void)
@@ -915,6 +914,7 @@ static void history_buckets(void)
                          &a) == 0);
     CHECK(a.hist[PAGE_HIST_N - 1].soil_n == 1 && a.hist[PAGE_HIST_N - 1].soil_sum == 600);
     CHECK(a.hist[PAGE_HIST_N - 1].light_n == 2 && a.hist[PAGE_HIST_N - 1].bright_n == 1);
+    CHECK(a.hist[PAGE_HIST_N - 1].soil_bad == 2 && a.hist[PAGE_HIST_N - 1].light_bad == 1);
 
     /* The largest values do not overflow: a full day of 65535 in one bucket. */
     page_acc_init(&a);
@@ -965,6 +965,321 @@ static void worst_case_view(page_view* v)
     v->water_dry_raw = 65535;
     v->disk_known = true;
     v->disk_free_bytes = UINT64_MAX;
+    /* A full history at the largest values, every bucket also with bad readings, and the soil
+     * swinging so every chart point and as many updates as can be listed are drawn. */
+    v->hist_on = true;
+    v->hist_start_ms = UINT64_MAX - PAGE_WINDOW_MS;
+    for (size_t i = 0; i < PAGE_HIST_N; i++) {
+        page_bucket* b = &v->hist[i];
+
+        b->soil_n = UINT32_MAX;
+        b->soil_min = i % 2 == 0 ? 0 : 65535;
+        b->soil_max = 65535;
+        b->soil_sum = (uint64_t)b->soil_min * UINT32_MAX;
+        b->light_n = UINT32_MAX;
+        b->bright_n = UINT32_MAX;
+        b->soil_bad = UINT32_MAX;
+        b->light_bad = UINT32_MAX;
+    }
+}
+
+/* A fresh, OK view (one record, soil 700) whose history is set by hand. */
+static void hist_view(page_view* v)
+{
+    page_acc a;
+
+    one_record(&a, v, 700, 0);
+    v->hist_on = true;
+    v->hist_start_ms = NOW - PAGE_WINDOW_MS;
+    (void)memset(v->hist, 0, sizeof v->hist);
+}
+
+/* Bucket i holds one good reading of soil `soil` (light dark). */
+static void put_soil(page_view* v, size_t i, uint16_t soil)
+{
+    page_bucket* b = &v->hist[i];
+
+    b->soil_n = 1;
+    b->soil_sum = soil;
+    b->soil_min = soil;
+    b->soil_max = soil;
+    b->light_n = 1;
+    b->bright_n = 0;
+}
+
+/* Recent updates: worked out from the buckets, newest first, at most the cap. */
+static void recent_updates(void)
+{
+    page_view  v;
+    page_event ev[PAGE_EVENTS_MAX];
+    size_t     n;
+
+    CHECK(PAGE_WATERED_RISE == 100u && PAGE_EVENTS_MAX == 5u);
+
+    /* No history, or a steady one: nothing to say. */
+    one_record(&(page_acc){0}, &v, 700, 0);
+    CHECK(!v.hist_on && page_events(&v, ev, PAGE_EVENTS_MAX) == 0);
+    hist_view(&v);
+    CHECK(page_events(&v, ev, PAGE_EVENTS_MAX) == 0);
+    for (size_t i = 0; i < PAGE_HIST_N; i++) {
+        put_soil(&v, i, 700);
+    }
+    CHECK(page_events(&v, ev, PAGE_EVENTS_MAX) == 0);
+
+    /* Watered: a rise of at least 100 from the last soil value within an hour. */
+    hist_view(&v);
+    put_soil(&v, 10, 400);
+    put_soil(&v, 11, 500);
+    n = page_events(&v, ev, PAGE_EVENTS_MAX);
+    CHECK(n == 1 && ev[0].kind == PAGE_EV_WATERED && ev[0].bucket == 11);
+    CHECK(ev[0].from_raw == 400 && ev[0].to_raw == 500);
+    put_soil(&v, 11, 499); /* 99 is not enough */
+    CHECK(page_events(&v, ev, PAGE_EVENTS_MAX) == 0);
+
+    /* One empty half hour between: still watered, and the gap is reported after it. */
+    hist_view(&v);
+    put_soil(&v, 10, 400);
+    put_soil(&v, 12, 520);
+    n = page_events(&v, ev, PAGE_EVENTS_MAX);
+    CHECK(n == 2 && ev[0].kind == PAGE_EV_WATERED && ev[0].bucket == 12);
+    CHECK(ev[1].kind == PAGE_EV_GAP && ev[1].bucket == 12 && ev[1].count == 1);
+    /* Two empty: more than an hour, so a rise is not called watering. */
+    hist_view(&v);
+    put_soil(&v, 10, 400);
+    put_soil(&v, 13, 520);
+    n = page_events(&v, ev, PAGE_EVENTS_MAX);
+    CHECK(n == 1 && ev[0].kind == PAGE_EV_GAP && ev[0].count == 2);
+
+    /* Went dry: from above the threshold to at or below it (450 is dry), even across a gap. */
+    hist_view(&v);
+    CHECK(v.water_dry_raw == 450);
+    put_soil(&v, 20, 460);
+    put_soil(&v, 21, 450);
+    n = page_events(&v, ev, PAGE_EVENTS_MAX);
+    CHECK(n == 1 && ev[0].kind == PAGE_EV_WENT_DRY && ev[0].bucket == 21);
+    CHECK(ev[0].from_raw == 460 && ev[0].to_raw == 450);
+    put_soil(&v, 21, 451);
+    CHECK(page_events(&v, ev, PAGE_EVENTS_MAX) == 0);
+    hist_view(&v);
+    put_soil(&v, 20, 460);
+    put_soil(&v, 30, 440);
+    n = page_events(&v, ev, PAGE_EVENTS_MAX);
+    CHECK(n == 2 && ev[0].kind == PAGE_EV_WENT_DRY && ev[1].kind == PAGE_EV_GAP && ev[1].count == 9);
+    v.water_dry_raw = 430; /* the line the daemon was given */
+    n = page_events(&v, ev, PAGE_EVENTS_MAX);
+    CHECK(n == 1 && ev[0].kind == PAGE_EV_GAP);
+
+    /* Bad readings, by sensor, with their count. */
+    hist_view(&v);
+    put_soil(&v, 40, 700);
+    v.hist[40].soil_bad = 3;
+    v.hist[40].light_bad = 2;
+    n = page_events(&v, ev, PAGE_EVENTS_MAX);
+    CHECK(n == 2 && ev[0].kind == PAGE_EV_SOIL_BAD && ev[0].count == 3);
+    CHECK(ev[1].kind == PAGE_EV_LIGHT_BAD && ev[1].count == 2);
+    /* A bucket with only bad readings still counts as readings for the gaps. */
+    hist_view(&v);
+    v.hist[5].soil_bad = 1;
+    v.hist[5].light_bad = 1;
+    put_soil(&v, 6, 700);
+    n = page_events(&v, ev, PAGE_EVENTS_MAX);
+    CHECK(n == 2 && ev[0].bucket == 5 && ev[1].bucket == 5);
+
+    /* More than fit: the newest ones, newest first, and never past the cap. */
+    hist_view(&v);
+    for (size_t i = 0; i < PAGE_HIST_N; i += 2) {
+        put_soil(&v, i, 700);
+    }
+    n = page_events(&v, ev, PAGE_EVENTS_MAX);
+    CHECK(n == PAGE_EVENTS_MAX && ev[0].bucket == PAGE_HIST_N - 2);
+    for (size_t i = 1; i < n; i++) {
+        CHECK(ev[i].kind == PAGE_EV_GAP && ev[i].bucket < ev[i - 1].bucket);
+    }
+    CHECK(page_events(&v, ev, 2) == 2 && page_events(&v, ev, 0) == 0);
+
+    /* On the page: each kind in words, with when; and the empty cases. */
+    {
+        char html[HTML_CAP];
+
+        hist_view(&v);
+        put_soil(&v, 44, 460);
+        put_soil(&v, 45, 440);
+        put_soil(&v, 46, 640);
+        v.hist[47].soil_bad = 4;
+        put_soil(&v, 30, 700);
+        CHECK(page_render_html(html, sizeof html, &v) > 0);
+        CHECK(has(html, "<h2>Recent updates</h2>"));
+        CHECK(has(html, "Watered</b> soil rose from 440 to 640"));
+        CHECK(has(html, "Went dry</b> soil fell from 460 to 440"));
+        CHECK(has(html, "Soil sensor</b> 4 bad readings"));
+        CHECK(has(html, "No readings</b> for at least 6 h 30 min"));
+        CHECK(has(html, "in the last 30 min")); /* bucket 47 */
+        CHECK(has(html, "1 h 30 min to 1 h ago")); /* bucket 45 */
+        CHECK(strstr(html, "Soil sensor</b>") < strstr(html, "Watered</b>")); /* newest first */
+        hist_view(&v);
+        put_soil(&v, 47, 700);
+        CHECK(page_render_html(html, sizeof html, &v) > 0 && has(html, "Nothing new in the last 24 hours."));
+        one_record(&(page_acc){0}, &v, 700, 0);
+        CHECK(page_render_html(html, sizeof html, &v) > 0 && has(html, "No readings in the last 24 hours"));
+    }
+}
+
+/* The d="..." of the first path with class `cls`, copied into out ("" if there is none). */
+static void path_d(const char* html, const char* cls, char* out, size_t cap)
+{
+    char        needle[48];
+    const char* p;
+    const char* end;
+
+    out[0] = '\0';
+    CHECK(snprintf(needle, sizeof needle, "<path class=\"%s\" d=\"", cls) > 0);
+    p = strstr(html, needle);
+    if (p == NULL) {
+        return;
+    }
+    p += strlen(needle);
+    end = strchr(p, '"');
+    CHECK(end != NULL && (size_t)(end - p) < cap);
+    (void)memcpy(out, p, (size_t)(end - p));
+    out[end - p] = '\0';
+}
+
+/* The soil graph: one line through the half-hour means, broken where there is no reading, with the
+ * Dry and Very dry bands behind it, a dot on the newest point and a hover note per point. */
+static void soil_chart(void)
+{
+    page_view v;
+    char      html[HTML_CAP];
+    char      d[2048];
+
+    hist_view(&v);
+    for (size_t i = 0; i < PAGE_HIST_N; i++) {
+        put_soil(&v, i, (uint16_t)(400u + 10u * i));
+    }
+    CHECK(page_render_html(html, sizeof html, &v) > 0);
+    CHECK(has(html, "aria-label=\"Soil moisture, last 24 hours\""));
+    CHECK(has(html, "class=\"bd1\"") && has(html, "class=\"bd2\"") && has(html, "class=\"bd3\""));
+    CHECK(count(html, "<title>Soil ") == PAGE_HIST_N);
+    CHECK(count(html, "class=\"now\"") == 1);
+    CHECK(has(html, "24 h ago") && has(html, ">now<"));
+    CHECK(has(html, "Low <b>400</b>") && has(html, "High <b>870</b>"));
+    CHECK(has(html, "<title>Soil 24 h to 23 h 30 min ago: average 400, low 400, high 400</title>"));
+    path_d(html, "ln", d, sizeof d);
+    CHECK(count(d, "M") == 1 && count(d, "L") == PAGE_HIST_N - 1);
+    path_d(html, "ar", d, sizeof d);
+    CHECK(count(d, "M") == 1 && count(d, "Z") == 1);
+
+    /* A hole breaks the line into two, and a point alone is a dot, not an invisible line. */
+    hist_view(&v);
+    put_soil(&v, 3, 600);
+    put_soil(&v, 10, 600);
+    put_soil(&v, 11, 610);
+    put_soil(&v, 12, 620);
+    put_soil(&v, 30, 600);
+    put_soil(&v, 31, 600);
+    CHECK(page_render_html(html, sizeof html, &v) > 0);
+    path_d(html, "ln", d, sizeof d);
+    CHECK(count(d, "M") == 2 && count(d, "L") == 3);
+    CHECK(count(html, "class=\"pt\"") == 1);
+    CHECK(count(html, "<title>Soil ") == 6);
+
+    /* Extremes stay inside the plot: only digits, spaces and the path letters, no minus. */
+    hist_view(&v);
+    put_soil(&v, 0, 0);
+    put_soil(&v, 1, 65535);
+    put_soil(&v, 47, 65535);
+    CHECK(page_render_html(html, sizeof html, &v) > 0);
+    path_d(html, "ln", d, sizeof d);
+    CHECK(d[0] == 'M' && strspn(d, "0123456789 MLZ") == strlen(d));
+    path_d(html, "ar", d, sizeof d);
+    CHECK(d[0] == 'M' && strspn(d, "0123456789 MLZ") == strlen(d));
+
+    /* No soil in the window: words, not an empty graph. */
+    hist_view(&v);
+    CHECK(page_render_html(html, sizeof html, &v) > 0);
+    CHECK(has(html, "No soil readings in the last 24 hours yet.") && !has(html, "class=\"ln\""));
+}
+
+/* The light strip: one cell per half hour, shaded by the share of bright readings (5 steps), a
+ * dashed cell where there was no reading, and the total bright time. */
+static void light_chart(void)
+{
+    static const struct {
+        uint32_t bright, n;
+        unsigned step;
+    } STEPS[] = {{0, 10, 0}, {1, 10, 1}, {5, 10, 2}, {9, 10, 3}, {10, 10, 4},
+                 {1, UINT32_MAX, 1}, {UINT32_MAX - 1u, UINT32_MAX, 3}, {UINT32_MAX, UINT32_MAX, 4}};
+    page_view v;
+    char      html[HTML_CAP];
+
+    hist_view(&v);
+    CHECK(page_render_html(html, sizeof html, &v) > 0);
+    CHECK(has(html, "No light readings in the last 24 hours yet.") && !has(html, "class=\"ls\""));
+
+    for (size_t s = 0; s < sizeof STEPS / sizeof STEPS[0]; s++) {
+        char want[24];
+
+        hist_view(&v);
+        v.hist[20].light_n = STEPS[s].n;
+        v.hist[20].bright_n = STEPS[s].bright;
+        CHECK(page_render_html(html, sizeof html, &v) > 0);
+        CHECK(snprintf(want, sizeof want, "class=\"b%u\"", STEPS[s].step) > 0);
+        CHECK(count(html, want) == 1);
+        CHECK(count(html, "class=\"none\"") == PAGE_HIST_N - 1);
+    }
+
+    hist_view(&v);
+    for (size_t i = 0; i < PAGE_HIST_N; i++) {
+        v.hist[i].light_n = 30;
+        v.hist[i].bright_n = i < 3 ? 30 : 0;
+    }
+    CHECK(page_render_html(html, sizeof html, &v) > 0);
+    CHECK(has(html, "aria-label=\"Light, last 24 hours\""));
+    CHECK(count(html, "<title>Light ") == PAGE_HIST_N);
+    CHECK(count(html, "class=\"b4\"") == 3 && count(html, "class=\"b0\"") == PAGE_HIST_N - 3);
+    CHECK(has(html, "Bright in 90 of 1440 readings, about 1 h 30 min"));
+    CHECK(has(html, "<title>Light in the last 30 min: bright in 0 of 30 readings</title>"));
+    CHECK(has(html, "<title>Light 24 h to 23 h 30 min ago: bright in 30 of 30 readings</title>"));
+}
+
+/* The top: the live dot and the banner's three tiles and strip. */
+static void dashboard_top(void)
+{
+    page_acc  a;
+    page_view v;
+    char      html[HTML_CAP];
+
+    hist_view(&v);
+    put_soil(&v, 40, 520);
+    put_soil(&v, 47, 700);
+    v.hist[47].bright_n = 1;
+    CHECK(page_render_html(html, sizeof html, &v) > 0);
+    CHECK(has(html, "<h1>Green Thumb</h1>"));
+    CHECK(has(html, "class=\"pill live\"") && !has(html, "pill stale") && !has(html, "pill wait"));
+    CHECK(has(html, "class=\"banner\"") && count(html, "class=\"tile\"") == 3);
+    CHECK(has(html, "<small>Soil moisture</small><b>700</b><span>Moist</span>"));
+    CHECK(has(html, "<small>Light</small><b>Dark</b>"));
+    CHECK(has(html, "<small>Water</small><b>Good</b><span>No water needed</span>"));
+    CHECK(has(html, "<small>Low to high, 24 h</small><b>520 to 700</b>"));
+    CHECK(strstr(html, "class=\"banner\"") < strstr(html, "class=\"box"));
+    CHECK(strstr(html, "class=\"scene\"") != NULL && has(html, "aria-hidden=\"true\""));
+
+    one_record(&a, &v, 400, GT_REC_LIGHT_BRIGHT);
+    CHECK(page_render_html(html, sizeof html, &v) > 0);
+    CHECK(has(html, "<small>Soil moisture</small><b>400</b><span>Dry</span>"));
+    CHECK(has(html, "<small>Light</small><b>Bright</b>"));
+    CHECK(has(html, "<small>Water</small><b>Dry</b><span>Water soon</span>"));
+    CHECK(has(html, "<small>Low to high, 24 h</small><b>none yet</b>"));
+
+    page_acc_init(&a);
+    add(&a, rec(NOW - PAGE_STALE_MS - 1, 1, 700, 0));
+    judge_ok(&a, NOW, &v);
+    CHECK(page_render_html(html, sizeof html, &v) > 0 && has(html, "class=\"pill stale\""));
+    CHECK(has(html, "<small>Water</small><b>Unknown</b>"));
+    page_acc_init(&a);
+    judge_ok(&a, NOW, &v);
+    CHECK(page_render_html(html, sizeof html, &v) > 0 && has(html, "class=\"pill wait\""));
+    CHECK(has(html, "<small>Soil moisture</small><b>none</b>"));
 }
 
 /* The product makes no network calls, so the page loads nothing: no link, script, image, style
@@ -1106,6 +1421,10 @@ int main(void)
     plant_picture();
     light_icon();
     history_buckets();
+    recent_updates();
+    soil_chart();
+    light_chart();
+    dashboard_top();
     page_is_self_contained();
     source_label();
     names();
