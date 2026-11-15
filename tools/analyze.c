@@ -29,7 +29,7 @@
 #define EXIT_USAGE 2
 
 #define MS_PER_DAY  86400000ull
-#define DRY_DEFAULT 450u /* typical STEMMA range: dry (ready to water soon) is 350-450 */
+#define DRY_DEFAULT 750u /* provisional best guess for this plant: 836 fresh, 782 at 3-4 days */
 #define DAYS_DEFAULT 28u
 #define DAYS_MAX     3650u
 

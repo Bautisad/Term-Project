@@ -11,6 +11,7 @@ trap 'rm -rf "$WORK"' EXIT
 BASE_MS=1794675600000
 CSVHEAD='time_utc,unix_ms,seq,soil_raw,soil_valid,soil_stuck,light,light_valid,light_bright_ms,light_changes,clock_unset,undervoltage,synthetic'
 WHEAD='utc_time,grams,finger'
+DRYOPT="--dry 450"
 SEQ=0
 
 fail() {
@@ -65,7 +66,10 @@ wtn() {
 # $WORK/err.  (The redirections are inside run on purpose: it is the only function that has them,
 # and `make memcheck` runs this script under Valgrind.)
 run() {
-    sh "$GT" --csv "$WORK/store.csv" --weights "$WORK/weights.csv" "$@" >"$WORK/out" 2>"$WORK/err"
+    # $DRYOPT is unquoted on purpose: the cases below were written for a dry line of 450, so they
+    # pin it; the "default line" case empties it to test the tool's own default.
+    # shellcheck disable=SC2086
+    sh "$GT" --csv "$WORK/store.csv" --weights "$WORK/weights.csv" $DRYOPT "$@" >"$WORK/out" 2>"$WORK/err"
     RC=$?
 }
 
@@ -157,6 +161,26 @@ expect_line dry_option "2026-11-14T17:40:00Z,5,,451,2026-11-14T17:40:00.000Z,0,y
 run --dry 500 --band 0
 expect_rc band_zero 0
 expect_line band_zero "2026-11-14T17:30:00Z,4,,498,2026-11-14T17:30:00.000Z,0,yes"
+
+echo "the default line is 750 (provisional, this plant): yes at or below it, back to no at 798"
+DRYOPT=
+newstore
+rec 0 900
+rec 600 750
+rec 1200 797
+rec 1800 798
+newweights
+wt 0 1
+wt 600 2
+wt 1200 3
+wt 1800 4
+run
+expect_rc default_line 0
+expect_line default_line "2026-11-14T17:00:00Z,1,,900,2026-11-14T17:00:00.000Z,0,no"
+expect_line default_line "2026-11-14T17:10:00Z,2,,750,2026-11-14T17:10:00.000Z,0,yes"
+expect_line default_line "2026-11-14T17:20:00Z,3,,797,2026-11-14T17:20:00.000Z,0,yes"
+expect_line default_line "2026-11-14T17:30:00Z,4,,798,2026-11-14T17:30:00.000Z,0,no"
+DRYOPT="--dry 450"
 
 echo "a weight with no usable record inside the window is listed as unmatched, not dropped"
 newstore
@@ -292,7 +316,8 @@ EOF
 chmod +x "$WORK/fakecsv"
 newweights
 wt 0 800 moist
-sh "$GT" --dir /some/where --csv-tool "$WORK/fakecsv" --weights "$WORK/weights.csv" >"$WORK/out" 2>"$WORK/err"
+# shellcheck disable=SC2086
+sh "$GT" --dir /some/where --csv-tool "$WORK/fakecsv" --weights "$WORK/weights.csv" $DRYOPT >"$WORK/out" 2>"$WORK/err"
 RC=$?
 expect_rc dir 0
 expect_line dir "2026-11-14T17:00:00Z,800,moist,700,2026-11-14T17:00:00.000Z,0,no"

@@ -23,7 +23,7 @@
 
 #include "record.h"
 
-#define THIRST_DRY_DEFAULT 450u /* typical STEMMA range: dry (ready to water soon) is 350-450 */
+#define THIRST_DRY_DEFAULT 750u /* provisional best guess for this plant: 836 fresh, 782 at 3-4 days */
 
 typedef struct thirst_params {
     uint16_t dry_raw;  /* dry at or below this */

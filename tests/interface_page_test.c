@@ -107,7 +107,7 @@ static void fresh_and_valid(void)
     CHECK(has(json, "\"state\":\"ok\"") && has(json, "\"reasons\":[]"));
     CHECK(has(json, "\"soil\":{\"raw\":914,\"age_s\":5}"));
     CHECK(has(json, "\"light\":{\"bright\":true,\"bright_ms\":1234,\"age_s\":5}"));
-    CHECK(has(json, "\"needs_water\":\"no\"") && has(json, "\"dry_raw\":450,"));
+    CHECK(has(json, "\"needs_water\":\"no\"") && has(json, "\"dry_raw\":750,"));
     CHECK(has(json, "\"time_until_dry\":null"));
     CHECK(!has(html, "Time until dry")); /* the page no longer has that section (the JSON still has the field) */
 }
@@ -420,17 +420,17 @@ static void needs_water_states(void)
 
     /* Hysteresis through the page: stays dry until the reading is 48 above the line. */
     page_acc_init(&a);
-    add(&a, rec(NOW - 40000, 1, 400, 0));
-    add(&a, rec(NOW - 30000, 2, 497, 0));
+    add(&a, rec(NOW - 40000, 1, 700, 0));
+    add(&a, rec(NOW - 30000, 2, 797, 0));
     judge_ok(&a, NOW, &v);
     water_is(&v, THIRST_NEEDS_WATER, "yes");
-    add(&a, rec(NOW - 20000, 3, 498, 0));
+    add(&a, rec(NOW - 20000, 3, 798, 0));
     judge_ok(&a, NOW, &v);
     water_is(&v, THIRST_OK, "no");
-    add(&a, rec(NOW - 10000, 4, 451, 0));
+    add(&a, rec(NOW - 10000, 4, 751, 0));
     judge_ok(&a, NOW, &v);
     water_is(&v, THIRST_OK, "no");
-    add(&a, rec(NOW - 5000, 5, 450, 0));
+    add(&a, rec(NOW - 5000, 5, 750, 0));
     judge_ok(&a, NOW, &v);
     water_is(&v, THIRST_NEEDS_WATER, "yes");
 
@@ -475,7 +475,7 @@ static void needs_water_unknown(void)
 
     /* The newest record is bad: an older good one does not stand in, dry or wet. */
     for (int dry = 0; dry < 2; dry++) {
-        uint16_t soil = dry ? 400 : 700;
+        uint16_t soil = dry ? 400 : 900;
 
         page_acc_init(&a);
         add(&a, rec(NOW - 10000, 1, soil, 0));
@@ -500,7 +500,7 @@ static void needs_water_unknown(void)
     /* Stale, dry or wet: the plant may have been watered since. */
     for (int dry = 0; dry < 2; dry++) {
         page_acc_init(&a);
-        add(&a, rec(NOW - PAGE_STALE_MS, 1, dry ? 400 : 700, 0));
+        add(&a, rec(NOW - PAGE_STALE_MS, 1, dry ? 400 : 900, 0));
         judge_ok(&a, NOW, &v);
         water_is(&v, dry ? THIRST_NEEDS_WATER : THIRST_OK, dry ? "yes" : "no"); /* exactly 3 min */
         judge_ok(&a, NOW + 1, &v);
@@ -527,13 +527,13 @@ static void needs_water_on_a_degraded_page(void)
     page_view v;
 
     /* Wet and fresh, but the page is degraded for another reason: unknown. */
-    one_record(&a, &v, 700, GT_REC_UNDERVOLT);
+    one_record(&a, &v, 900, GT_REC_UNDERVOLT);
     CHECK(v.state == PAGE_DEGRADED);
     water_is(&v, THIRST_UNKNOWN, "unknown");
-    one_record(&a, &v, 700, GT_REC_LIGHT_INVALID);
+    one_record(&a, &v, 900, GT_REC_LIGHT_INVALID);
     CHECK(v.state == PAGE_DEGRADED);
     water_is(&v, THIRST_UNKNOWN, "unknown");
-    one_record(&a, &v, 700, 0);
+    one_record(&a, &v, 900, 0);
     judge(&a, NOW, 0, true, 5ull * 1024 * 1024, &v); /* low disk */
     CHECK(v.state == PAGE_DEGRADED);
     water_is(&v, THIRST_UNKNOWN, "unknown");
@@ -612,9 +612,9 @@ static void box_colors(void)
         uint16_t    soil;
         const char* want;
     } T[] = {
-        {65535, "green"}, {750, "green"}, {749, "green"}, {451, "green"},
-        {450, "yellow"},  {400, "yellow"}, {350, "yellow"},
-        {349, "red"},     {325, "red"},    {300, "red"},
+        {65535, "green"}, {800, "green"}, {799, "green"}, {751, "green"},
+        {750, "yellow"},  {700, "yellow"}, {651, "yellow"},
+        {650, "red"},     {400, "red"},    {300, "red"},
         {299, "black"},   {100, "black"},  {1, "black"},
     };
     page_acc  a;
@@ -632,29 +632,29 @@ static void box_colors(void)
 
     /* Above the line but inside the margin is still not green (the needs-water hysteresis). */
     page_acc_init(&a);
-    add(&a, rec(NOW - 40000, 1, 400, 0));
-    add(&a, rec(NOW - 30000, 2, 497, 0));
+    add(&a, rec(NOW - 40000, 1, 700, 0));
+    add(&a, rec(NOW - 30000, 2, 797, 0));
     judge_ok(&a, NOW, &v);
     box_is(&v, "yellow");
-    add(&a, rec(NOW - 20000, 3, 498, 0));
+    add(&a, rec(NOW - 20000, 3, 798, 0));
     judge_ok(&a, NOW, &v);
     box_is(&v, "green");
-    add(&a, rec(NOW - 10000, 4, 451, 0));
+    add(&a, rec(NOW - 10000, 4, 751, 0));
     judge_ok(&a, NOW, &v);
     box_is(&v, "green");
-    add(&a, rec(NOW - 5000, 5, 450, 0));
+    add(&a, rec(NOW - 5000, 5, 750, 0));
     judge_ok(&a, NOW, &v);
     box_is(&v, "yellow");
 
     /* A dry line set by the caller moves the green line; the red and black lines stay. */
     page_acc_init(&a);
-    page_acc_set_dry(&a, 700);
-    add(&a, rec(NOW - 5000, 1, 650, 0));
+    page_acc_set_dry(&a, 800);
+    add(&a, rec(NOW - 5000, 1, 700, 0));
     judge_ok(&a, NOW, &v);
     box_is(&v, "yellow");
     page_acc_init(&a);
-    page_acc_set_dry(&a, 700);
-    add(&a, rec(NOW - 5000, 1, 760, 0));
+    page_acc_set_dry(&a, 800);
+    add(&a, rec(NOW - 5000, 1, 860, 0));
     judge_ok(&a, NOW, &v);
     box_is(&v, "green");
     page_acc_init(&a);
@@ -683,7 +683,7 @@ static void unknown_box(void)
     CHECK(has(html, "Do not assume it is fine"));
 
     for (int dry = 0; dry < 2; dry++) {
-        uint16_t soil = dry ? 400 : 700;
+        uint16_t soil = dry ? 400 : 900;
 
         one_record(&a, &v, soil, 0); /* too old to trust, dry or wet */
         judge_ok(&a, NOW + PAGE_STALE_MS, &v);
@@ -704,16 +704,16 @@ static void unknown_box(void)
     }
 
     /* Wet and fresh, but the page is degraded for another reason: unknown. */
-    one_record(&a, &v, 700, GT_REC_UNDERVOLT);
+    one_record(&a, &v, 900, GT_REC_UNDERVOLT);
     box_is(&v, "unknown");
-    one_record(&a, &v, 700, 0);
+    one_record(&a, &v, 900, 0);
     judge(&a, NOW, EIO, true, GB, &v);
     box_is(&v, "unknown");
     judge(&a, NOW, 0, true, 5ull * 1024 * 1024, &v);
     box_is(&v, "unknown");
 
     /* Dry and fresh on a degraded page: the alert still shows, in its own color. */
-    one_record(&a, &v, 400, GT_REC_UNDERVOLT);
+    one_record(&a, &v, 700, GT_REC_UNDERVOLT);
     box_is(&v, "yellow");
 }
 
@@ -724,11 +724,11 @@ static void range_table(void)
         uint16_t    soil;
         const char* row;
     } T[] = {
-        {65535, "Wet"},  {800, "Wet"},    {750, "Wet"},       {749, "Moist"},    {600, "Moist"},
-        {451, "Moist"},  {450, "Dry"},    {400, "Dry"},       {350, "Dry"},      {349, "Very dry"},
-        {325, "Very dry"}, {300, "Very dry"}, {299, "Open air"}, {200, "Open air"}, {1, "Open air"},
+        {65535, "Wet"},  {900, "Wet"},    {800, "Wet"},       {799, "Moist"},    {775, "Moist"},
+        {751, "Moist"},  {750, "Dry"},    {700, "Dry"},       {651, "Dry"},      {650, "Very dry"},
+        {400, "Very dry"}, {300, "Very dry"}, {299, "Open air"}, {200, "Open air"}, {1, "Open air"},
     };
-    static const char* const RANGES[] = {"750 and up", "451 to 749", "350 to 450", "300 to 349",
+    static const char* const RANGES[] = {"800 and up", "751 to 799", "651 to 750", "300 to 650",
                                          "below 300"};
     page_acc  a;
     page_view v;
@@ -753,8 +753,8 @@ static void range_table(void)
     page_acc_init(&a);
     judge_ok(&a, NOW, &v);
     CHECK(page_render_html(html, sizeof html, &v) > 0);
-    CHECK(count(html, "class=\"here\"") == 0 && has(html, "<table") && has(html, "750 and up"));
-    CHECK(has(html, "typical values for this sensor type, not measured for your plant"));
+    CHECK(count(html, "class=\"here\"") == 0 && has(html, "<table") && has(html, "800 and up"));
+    CHECK(has(html, "a provisional best guess for this plant from two readings, not a measured calibration"));
     CHECK(!has(html, "Your reading:"));
 
     /* The newest soil value is invalid: the last valid one is still the number marked, with its age. */
@@ -774,7 +774,7 @@ static void plant_picture(void)
     page_view v;
     char      html[HTML_CAP];
 
-    one_record(&a, &v, 700, 0);
+    one_record(&a, &v, 900, 0);
     CHECK(page_render_html(html, sizeof html, &v) > 0);
     CHECK(has(html, "<svg") && has(html, "role=\"img\"") && has(html, "aria-label=\"Potted plant\""));
     CHECK(strstr(html, "<svg") < strstr(html, "class=\"box")); /* the picture, then the box beside it */
@@ -807,9 +807,9 @@ static void light_icon(void)
     page_acc  a;
     page_view v;
 
-    one_record(&a, &v, 700, GT_REC_LIGHT_BRIGHT);
+    one_record(&a, &v, 900, GT_REC_LIGHT_BRIGHT);
     light_is(&v, "on", "Light: Bright");
-    one_record(&a, &v, 700, 0);
+    one_record(&a, &v, 900, 0);
     light_is(&v, "off", "Light: Dark");
 
     page_acc_init(&a); /* nothing recorded */
@@ -817,27 +817,27 @@ static void light_icon(void)
     light_is(&v, "unk", "Light: Unknown");
 
     page_acc_init(&a); /* the newest light value is invalid: an older bright one does not stand in */
-    add(&a, rec(NOW - 10000, 1, 700, GT_REC_LIGHT_BRIGHT));
-    add(&a, rec(NOW - 5000, 2, 700, GT_REC_LIGHT_INVALID));
+    add(&a, rec(NOW - 10000, 1, 900, GT_REC_LIGHT_BRIGHT));
+    add(&a, rec(NOW - 5000, 2, 900, GT_REC_LIGHT_INVALID));
     judge_ok(&a, NOW, &v);
     light_is(&v, "unk", "Light: Unknown");
 
     page_acc_init(&a); /* too old to say what the light is now, bright or dark */
-    add(&a, rec(NOW - PAGE_STALE_MS, 1, 700, GT_REC_LIGHT_BRIGHT));
+    add(&a, rec(NOW - PAGE_STALE_MS, 1, 900, GT_REC_LIGHT_BRIGHT));
     judge_ok(&a, NOW, &v);
     light_is(&v, "on", "Light: Bright"); /* exactly 3 minutes is not yet stale */
     judge_ok(&a, NOW + 1, &v);
     light_is(&v, "unk", "Light: Unknown");
     page_acc_init(&a);
-    add(&a, rec(NOW - PAGE_STALE_MS - 1, 1, 700, 0));
+    add(&a, rec(NOW - PAGE_STALE_MS - 1, 1, 900, 0));
     judge_ok(&a, NOW, &v);
     light_is(&v, "unk", "Light: Unknown"); /* a dark reading goes unknown too, not just bright */
 
     /* The icon follows the light only: it does not move the water box. */
-    one_record(&a, &v, 400, GT_REC_LIGHT_BRIGHT);
+    one_record(&a, &v, 700, GT_REC_LIGHT_BRIGHT);
     box_is(&v, "yellow");
     light_is(&v, "on", "Light: Bright");
-    one_record(&a, &v, 400, 0);
+    one_record(&a, &v, 700, 0);
     box_is(&v, "yellow");
     light_is(&v, "off", "Light: Dark");
 }
@@ -863,7 +863,7 @@ static int lands_in(uint64_t now, uint64_t ts)
 
     page_acc_init(&a);
     page_acc_set_now(&a, now);
-    add(&a, rec(ts, 1, 700, 0));
+    add(&a, rec(ts, 1, 900, 0));
     return bucket_of(&a);
 }
 
@@ -878,7 +878,7 @@ static void history_buckets(void)
 
     /* Off unless asked for: the old callers see no history. */
     page_acc_init(&a);
-    add(&a, rec(NOW - 1000, 1, 700, 0));
+    add(&a, rec(NOW - 1000, 1, 900, 0));
     CHECK(!a.hist_on && bucket_of(&a) == -1);
 
     /* Where a record lands, at every edge of the window and of a bucket. */
@@ -988,7 +988,7 @@ static void hist_view(page_view* v)
 {
     page_acc a;
 
-    one_record(&a, v, 700, 0);
+    one_record(&a, v, 900, 0);
     v->hist_on = true;
     v->hist_start_ms = NOW - PAGE_WINDOW_MS;
     (void)memset(v->hist, 0, sizeof v->hist);
@@ -1017,12 +1017,12 @@ static void recent_updates(void)
     CHECK(PAGE_WATERED_RISE == 100u && PAGE_EVENTS_MAX == 5u);
 
     /* No history, or a steady one: nothing to say. */
-    one_record(&(page_acc){0}, &v, 700, 0);
+    one_record(&(page_acc){0}, &v, 900, 0);
     CHECK(!v.hist_on && page_events(&v, ev, PAGE_EVENTS_MAX) == 0);
     hist_view(&v);
     CHECK(page_events(&v, ev, PAGE_EVENTS_MAX) == 0);
     for (size_t i = 0; i < PAGE_HIST_N; i++) {
-        put_soil(&v, i, 700);
+        put_soil(&v, i, 900);
     }
     CHECK(page_events(&v, ev, PAGE_EVENTS_MAX) == 0);
 
@@ -1050,28 +1050,28 @@ static void recent_updates(void)
     n = page_events(&v, ev, PAGE_EVENTS_MAX);
     CHECK(n == 1 && ev[0].kind == PAGE_EV_GAP && ev[0].count == 2);
 
-    /* Went dry: from above the threshold to at or below it (450 is dry), even across a gap. */
+    /* Went dry: from above the threshold to at or below it (750 is dry), even across a gap. */
     hist_view(&v);
-    CHECK(v.water_dry_raw == 450);
-    put_soil(&v, 20, 460);
-    put_soil(&v, 21, 450);
+    CHECK(v.water_dry_raw == 750);
+    put_soil(&v, 20, 760);
+    put_soil(&v, 21, 750);
     n = page_events(&v, ev, PAGE_EVENTS_MAX);
     CHECK(n == 1 && ev[0].kind == PAGE_EV_WENT_DRY && ev[0].bucket == 21);
-    CHECK(ev[0].from_raw == 460 && ev[0].to_raw == 450);
-    put_soil(&v, 21, 451);
+    CHECK(ev[0].from_raw == 760 && ev[0].to_raw == 750);
+    put_soil(&v, 21, 751);
     CHECK(page_events(&v, ev, PAGE_EVENTS_MAX) == 0);
     hist_view(&v);
-    put_soil(&v, 20, 460);
-    put_soil(&v, 30, 440);
+    put_soil(&v, 20, 760);
+    put_soil(&v, 30, 740);
     n = page_events(&v, ev, PAGE_EVENTS_MAX);
     CHECK(n == 2 && ev[0].kind == PAGE_EV_WENT_DRY && ev[1].kind == PAGE_EV_GAP && ev[1].count == 9);
-    v.water_dry_raw = 430; /* the line the daemon was given */
+    v.water_dry_raw = 730; /* the line the daemon was given */
     n = page_events(&v, ev, PAGE_EVENTS_MAX);
     CHECK(n == 1 && ev[0].kind == PAGE_EV_GAP);
 
     /* Bad readings, by sensor, with their count. */
     hist_view(&v);
-    put_soil(&v, 40, 700);
+    put_soil(&v, 40, 900);
     v.hist[40].soil_bad = 3;
     v.hist[40].light_bad = 2;
     n = page_events(&v, ev, PAGE_EVENTS_MAX);
@@ -1081,14 +1081,14 @@ static void recent_updates(void)
     hist_view(&v);
     v.hist[5].soil_bad = 1;
     v.hist[5].light_bad = 1;
-    put_soil(&v, 6, 700);
+    put_soil(&v, 6, 900);
     n = page_events(&v, ev, PAGE_EVENTS_MAX);
     CHECK(n == 2 && ev[0].bucket == 5 && ev[1].bucket == 5);
 
     /* More than fit: the newest ones, newest first, and never past the cap. */
     hist_view(&v);
     for (size_t i = 0; i < PAGE_HIST_N; i += 2) {
-        put_soil(&v, i, 700);
+        put_soil(&v, i, 900);
     }
     n = page_events(&v, ev, PAGE_EVENTS_MAX);
     CHECK(n == PAGE_EVENTS_MAX && ev[0].bucket == PAGE_HIST_N - 2);
@@ -1102,24 +1102,24 @@ static void recent_updates(void)
         char html[HTML_CAP];
 
         hist_view(&v);
-        put_soil(&v, 44, 460);
-        put_soil(&v, 45, 440);
-        put_soil(&v, 46, 640);
+        put_soil(&v, 44, 760);
+        put_soil(&v, 45, 740);
+        put_soil(&v, 46, 940);
         v.hist[47].soil_bad = 4;
-        put_soil(&v, 30, 700);
+        put_soil(&v, 30, 900);
         CHECK(page_render_html(html, sizeof html, &v) > 0);
         CHECK(has(html, "<h2>Recent updates</h2>"));
-        CHECK(has(html, "Watered</b> soil rose from 440 to 640"));
-        CHECK(has(html, "Went dry</b> soil fell from 460 to 440"));
+        CHECK(has(html, "Watered</b> soil rose from 740 to 940"));
+        CHECK(has(html, "Went dry</b> soil fell from 760 to 740"));
         CHECK(has(html, "Soil sensor</b> 4 bad readings"));
         CHECK(has(html, "No readings</b> for at least 6 h 30 min"));
         CHECK(has(html, "in the last 30 min")); /* bucket 47 */
         CHECK(has(html, "1 h 30 min to 1 h ago")); /* bucket 45 */
         CHECK(strstr(html, "Soil sensor</b>") < strstr(html, "Watered</b>")); /* newest first */
         hist_view(&v);
-        put_soil(&v, 47, 700);
+        put_soil(&v, 47, 900);
         CHECK(page_render_html(html, sizeof html, &v) > 0 && has(html, "Nothing new in the last 24 hours."));
-        one_record(&(page_acc){0}, &v, 700, 0);
+        one_record(&(page_acc){0}, &v, 900, 0);
         CHECK(page_render_html(html, sizeof html, &v) > 0 && has(html, "No readings in the last 24 hours"));
     }
 }
@@ -1251,28 +1251,28 @@ static void dashboard_top(void)
 
     hist_view(&v);
     put_soil(&v, 40, 520);
-    put_soil(&v, 47, 700);
+    put_soil(&v, 47, 900);
     v.hist[47].bright_n = 1;
     CHECK(page_render_html(html, sizeof html, &v) > 0);
     CHECK(has(html, "<h1>Green Thumb</h1>"));
     CHECK(has(html, "class=\"pill live\"") && !has(html, "pill stale") && !has(html, "pill wait"));
     CHECK(has(html, "class=\"banner\"") && count(html, "class=\"tile\"") == 3);
-    CHECK(has(html, "<small>Soil moisture</small><b>700</b><span>Moist</span>"));
+    CHECK(has(html, "<small>Soil moisture</small><b>900</b><span>Wet</span>"));
     CHECK(has(html, "<small>Light</small><b>Dark</b>"));
     CHECK(has(html, "<small>Water</small><b>Good</b><span>No water needed</span>"));
-    CHECK(has(html, "<small>Low to high, 24 h</small><b>520 to 700</b>"));
+    CHECK(has(html, "<small>Low to high, 24 h</small><b>520 to 900</b>"));
     CHECK(strstr(html, "class=\"banner\"") < strstr(html, "class=\"box"));
     CHECK(strstr(html, "class=\"scene\"") != NULL && has(html, "aria-hidden=\"true\""));
 
-    one_record(&a, &v, 400, GT_REC_LIGHT_BRIGHT);
+    one_record(&a, &v, 700, GT_REC_LIGHT_BRIGHT);
     CHECK(page_render_html(html, sizeof html, &v) > 0);
-    CHECK(has(html, "<small>Soil moisture</small><b>400</b><span>Dry</span>"));
+    CHECK(has(html, "<small>Soil moisture</small><b>700</b><span>Dry</span>"));
     CHECK(has(html, "<small>Light</small><b>Bright</b>"));
     CHECK(has(html, "<small>Water</small><b>Dry</b><span>Water soon</span>"));
     CHECK(has(html, "<small>Low to high, 24 h</small><b>none yet</b>"));
 
     page_acc_init(&a);
-    add(&a, rec(NOW - PAGE_STALE_MS - 1, 1, 700, 0));
+    add(&a, rec(NOW - PAGE_STALE_MS - 1, 1, 900, 0));
     judge_ok(&a, NOW, &v);
     CHECK(page_render_html(html, sizeof html, &v) > 0 && has(html, "class=\"pill stale\""));
     CHECK(has(html, "<small>Water</small><b>Unknown</b>"));
@@ -1295,7 +1295,7 @@ static void page_is_self_contained(void)
 
     page_acc_init(&a);
     judge_ok(&a, NOW, &views[0]);
-    one_record(&a, &views[1], 700, 0);
+    one_record(&a, &views[1], 900, 0);
     one_record(&a, &views[2], 400, GT_REC_SYNTHETIC);
     one_record(&a, &views[3], 200, GT_REC_UNDERVOLT);
     worst_case_view(&views[4]);
@@ -1334,8 +1334,8 @@ static void source_label(void)
 
     /* Live records, even with every other flag set, are live: only the one bit counts. */
     page_acc_init(&a);
-    add(&a, rec(NOW - 7000, 1, 700, 0));
-    add(&a, rec(NOW - 6000, 2, 700, (uint16_t)(GT_REC_SOIL_INVALID | GT_REC_SOIL_STUCK |
+    add(&a, rec(NOW - 7000, 1, 900, 0));
+    add(&a, rec(NOW - 6000, 2, 900, (uint16_t)(GT_REC_SOIL_INVALID | GT_REC_SOIL_STUCK |
                                               GT_REC_LIGHT_INVALID | GT_REC_LIGHT_BRIGHT |
                                               GT_REC_TIME_UNSET | GT_REC_UNDERVOLT)));
     judge_ok(&a, NOW, &v);
@@ -1346,9 +1346,9 @@ static void source_label(void)
 
     /* All synthetic. */
     page_acc_init(&a);
-    add(&a, rec(NOW - 7000, 1, 700, GT_REC_SYNTHETIC));
-    add(&a, rec(NOW - 6000, 2, 700, GT_REC_SYNTHETIC | GT_REC_LIGHT_BRIGHT));
-    add(&a, rec(NOW - 5000, 3, 700, GT_REC_SYNTHETIC));
+    add(&a, rec(NOW - 7000, 1, 900, GT_REC_SYNTHETIC));
+    add(&a, rec(NOW - 6000, 2, 900, GT_REC_SYNTHETIC | GT_REC_LIGHT_BRIGHT));
+    add(&a, rec(NOW - 5000, 3, 900, GT_REC_SYNTHETIC));
     judge_ok(&a, NOW, &v);
     CHECK(a.synthetic == 3 && v.source == PAGE_SRC_SYNTHETIC && v.synthetic == 3);
     CHECK(page_render_json(json, sizeof json, &v) > 0 && json_balanced(json));
@@ -1361,9 +1361,9 @@ static void source_label(void)
 
     /* Mixed: fake records followed by a live one. */
     page_acc_init(&a);
-    add(&a, rec(NOW - 7000, 1, 700, GT_REC_SYNTHETIC));
-    add(&a, rec(NOW - 6000, 2, 700, 0));
-    add(&a, rec(NOW - 5000, 3, 700, 0));
+    add(&a, rec(NOW - 7000, 1, 900, GT_REC_SYNTHETIC));
+    add(&a, rec(NOW - 6000, 2, 900, 0));
+    add(&a, rec(NOW - 5000, 3, 900, 0));
     judge_ok(&a, NOW, &v);
     CHECK(v.source == PAGE_SRC_MIXED && v.synthetic == 1 && v.records == 3);
     CHECK(page_render_json(json, sizeof json, &v) > 0);
@@ -1373,7 +1373,7 @@ static void source_label(void)
 
     /* A damaged record is not counted, whatever its flags say. */
     page_acc_init(&a);
-    add(&a, rec(NOW - 5000, 1, 700, 0));
+    add(&a, rec(NOW - 5000, 1, 900, 0));
     (void)memset(&bad, 0, sizeof bad);
     bad.flags = GT_REC_SYNTHETIC;
     CHECK(page_acc_visit(&bad, GT_STORE_REC_CORRUPT, &a) == 0);
@@ -1382,7 +1382,7 @@ static void source_label(void)
 
     /* The banner is plain text: no link, script or address for the no-network guard to object to. */
     page_acc_init(&a);
-    add(&a, rec(NOW - 5000, 1, 700, GT_REC_SYNTHETIC));
+    add(&a, rec(NOW - 5000, 1, 900, GT_REC_SYNTHETIC));
     judge_ok(&a, NOW, &v);
     CHECK(page_render_html(html, sizeof html, &v) > 0);
     CHECK(!has(html, "http://") && !has(html, "https://") && !has(html, "<script") &&
