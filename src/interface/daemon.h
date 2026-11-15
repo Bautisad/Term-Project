@@ -16,7 +16,9 @@
 #define IFACE_PORT_DEFAULT 8080u
 #define IFACE_DIR_DEFAULT  "/var/lib/greenthumb/store" /* the hub must write here, or be told --dir */
 #define IFACE_MAX_CONNS    8u     /* open at once; the next one is answered 503 and closed */
-#define IFACE_BODY_CAP     8192u  /* largest HTML or JSON body (page_render_* fail if it is larger) */
+#define IFACE_BODY_CAP     32768u /* largest HTML or JSON body (page_render_* fail if it is larger);
+                                     a day of history makes the page about 27 KB.  The daemon keeps
+                                     its buffers on iface_run's stack: about 340 KB at this cap */
 #define IFACE_RESPONSE_CAP (IFACE_BODY_CAP + 512u) /* body plus the response headers */
 
 typedef struct iface_opts {
