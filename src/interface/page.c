@@ -48,6 +48,49 @@ void page_acc_init(page_acc* a)
     page_acc_set_dry(a, THIRST_DRY_DEFAULT);
 }
 
+void page_acc_set_now(page_acc* a, uint64_t now_ms)
+{
+    (void)memset(a->hist, 0, sizeof a->hist);
+    a->hist_on = true;
+    a->hist_start_ms = now_ms > PAGE_WINDOW_MS ? now_ms - PAGE_WINDOW_MS : 0;
+}
+
+uint16_t page_bucket_soil_avg(const page_bucket* b)
+{
+    if (b->soil_n == 0) {
+        return 0;
+    }
+    return (uint16_t)((b->soil_sum + b->soil_n / 2u) / b->soil_n);
+}
+
+/* Adds a readable record to its bucket, if it falls inside the window. */
+static void hist_add(page_acc* a, const gt_record* rec)
+{
+    page_bucket* b;
+    uint64_t     i;
+
+    if (!a->hist_on || rec->ts_unix_ms < a->hist_start_ms ||
+        rec->ts_unix_ms - a->hist_start_ms > PAGE_WINDOW_MS || (rec->flags & GT_REC_TIME_UNSET) != 0) {
+        return;
+    }
+    i = (rec->ts_unix_ms - a->hist_start_ms) / PAGE_HIST_BUCKET_MS;
+    b = &a->hist[i < PAGE_HIST_N ? i : PAGE_HIST_N - 1u]; /* the end of the window itself */
+    if ((rec->flags & (GT_REC_SOIL_INVALID | GT_REC_SOIL_STUCK)) == 0) {
+        if (b->soil_n == 0 || rec->soil_raw < b->soil_min) {
+            b->soil_min = rec->soil_raw;
+        }
+        if (b->soil_n == 0 || rec->soil_raw > b->soil_max) {
+            b->soil_max = rec->soil_raw;
+        }
+        b->soil_n++;
+        b->soil_sum += rec->soil_raw;
+    }
+    if ((rec->flags & GT_REC_LIGHT_INVALID) == 0) {
+        b->light_n++;
+        b->bright_n += (rec->flags & GT_REC_LIGHT_BRIGHT) != 0 ? 1u : 0u;
+    }
+}
+
 int page_acc_visit(const gt_record* rec, gt_store_rec_status status, void* ctx)
 {
     page_acc* a = ctx;
@@ -56,6 +99,7 @@ int page_acc_visit(const gt_record* rec, gt_store_rec_status status, void* ctx)
         a->corrupt++;
         return 0;
     }
+    hist_add(a, rec);
     a->records++;
     if (a->have_prev && (uint64_t)rec->seq > (uint64_t)a->prev_seq + 1u) {
         a->gap_events++;
@@ -121,6 +165,9 @@ void page_judge(const page_input* in, page_view* v)
     v->gap_events = a->gap_events;
     v->missing = a->missing;
     v->synthetic = a->synthetic;
+    v->hist_on = a->hist_on;
+    v->hist_start_ms = a->hist_start_ms;
+    (void)memcpy(v->hist, a->hist, sizeof v->hist);
     if (a->records == 0) {
         v->source = PAGE_SRC_NONE;
     } else if (a->synthetic == 0) {
