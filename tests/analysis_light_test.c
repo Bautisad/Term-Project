@@ -544,7 +544,7 @@ static void test_invalid_light(void)
         dry_acc    a;
 
         dry_params_default(&p);
-        CHECK(p.dry_raw == 450.0);
+        CHECK(p.dry_raw == 750.0);
         p.dry_raw = NAN;
         errno = 0;
         CHECK(dry_acc_init(&a, &p) == -1 && errno == EINVAL);

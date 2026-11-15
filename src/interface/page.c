@@ -425,19 +425,20 @@ static const char* state_title(page_state s)
     return "No data yet";
 }
 
-/* The soil ranges of the table and the colors of the box.  Drafts, from the typical readings of
- * the Adafruit STEMMA sensor (open air 200-300, very dry 300-350, dry 350-450, moist 450-750,
- * wet 750 and up).  A reading of exactly 450 counts as dry, because the needs-water check treats
- * "at or below the dry line" as dry. */
-#define ROW_WET_MIN      750u
-#define ROW_MOIST_MIN    451u
-#define ROW_DRY_MIN      350u
+/* The soil ranges of the table and the colors of the box.  A provisional best guess for this
+ * plant, from two readings (836 just watered, 782 at 3-4 days with the top inch dry) and the
+ * watering guide: wet 800 and up, moist 751-799, dry 651-750, very dry 300-650, open air below
+ * 300 (the open-air floor is the sensor's, not the plant's).  A reading of exactly 750 counts as
+ * dry, because the needs-water check treats "at or below the dry line" as dry. */
+#define ROW_WET_MIN      800u
+#define ROW_MOIST_MIN    751u
+#define ROW_DRY_MIN      651u
 #define ROW_VERY_DRY_MIN 300u
 #define N_ROWS           5u
 
 _Static_assert(ROW_MOIST_MIN == THIRST_DRY_DEFAULT + 1u, "the Dry row ends at the default dry line");
-/* The gauge below draws these lines on a 200 to 900 scale (14.3%, 21.4%, 35.7%). */
-_Static_assert(ROW_VERY_DRY_MIN == 300u && ROW_DRY_MIN == 350u && ROW_MOIST_MIN == 451u,
+/* The gauge below draws these lines on a 200 to 900 scale (14.3%, 64.4%, 78.7%). */
+_Static_assert(ROW_VERY_DRY_MIN == 300u && ROW_DRY_MIN == 651u && ROW_MOIST_MIN == 751u,
                "update the gauge colors");
 #define GAUGE_MIN 200u
 #define GAUGE_MAX 900u
@@ -540,7 +541,7 @@ static const char HTML_HEAD[] =
     ".fake{background:#222;color:#fff;padding:.5rem .75rem;border-radius:.4rem;margin:0 0 1rem}"
     ".gauge{position:relative;height:.8rem;border-radius:.4rem;margin:1rem 0 .4rem;"
     "outline:1px solid var(--mut);"
-    "background:linear-gradient(90deg,var(--k) 0 14.3%,var(--r) 0 21.4%,var(--y) 0 35.7%,var(--g) 0)}"
+    "background:linear-gradient(90deg,var(--k) 0 14.3%,var(--r) 0 64.4%,var(--y) 0 78.7%,var(--g) 0)}"
     ".gauge i{position:absolute;top:-.3rem;width:.3rem;height:1.4rem;margin-left:-.15rem;"
     "background:var(--ink);border:2px solid var(--card);border-radius:.2rem}"
     ".hd p{margin:0}.chart{display:block;width:100%;height:auto;margin:.6rem 0 .2rem}"
@@ -1057,7 +1058,7 @@ static void put_table(out* o, const page_view* v)
     put(o, "</table>\n<p class=\"mut\">The box is green only when the needs-water check says the "
            "soil is OK. After a dry spell it stays yellow until the reading is clearly above the "
            "Dry row, so it can lag this table. Below %u is what the sensor reads in open air. The "
-           "ranges are typical values for this sensor type, not measured for your plant.</p>\n"
+           "ranges are a provisional best guess for this plant from two readings, not a measured calibration.</p>\n"
            "</section>\n",
         ROW_VERY_DRY_MIN);
 }

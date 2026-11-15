@@ -11,7 +11,7 @@
 #                     dry, moist or wet, or empty when only the weight was taken.
 #   --dir DIR         the store to read, through gt-csv (read-only, safe while the hub writes)
 #   --csv FILE        a gt-csv export instead of a store (used by the tests)
-#   --dry N           the flag is yes at or below N, default 450 (THIRST_DRY_DEFAULT)
+#   --dry N           the flag is yes at or below N, default 750 (THIRST_DRY_DEFAULT)
 #   --band N          the flag goes back to no only at N + band, default 48 (the page's band)
 #   --window S        a weight is matched to the nearest usable record within S seconds,
 #                     default 300; otherwise it is listed as unmatched
@@ -36,7 +36,7 @@
 # Exit 0: done (a C4 FAIL is a result, not an error).  1: an input could not be read or is
 # malformed (the message gives the line).  2: bad arguments.
 
-DRY=450
+DRY=750
 BAND=48
 WINDOW=300
 WEIGHTS=
@@ -52,7 +52,7 @@ usage: groundtruth.sh --weights FILE (--dir DIR | --csv FILE) [--dry N] [--band 
   --weights FILE    utc_time,grams,finger lines (finger: dry, moist, wet or empty)
   --dir DIR         the store to read through gt-csv
   --csv FILE        a gt-csv export instead of a store
-  --dry N           flag yes at or below N (default 450)
+  --dry N           flag yes at or below N (default 750)
   --band N          flag back to no at N + band (default 48)
   --window S        match a weight to a record within S seconds (default 300)
   --calib-out FILE  write "weight_g raw" lines for soilstats.sh calib

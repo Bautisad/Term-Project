@@ -302,12 +302,18 @@ static void test_tool(void)
     CHECK(strstr(out, "prediction_withheld reason=no_recent_data have=7 need=3") != NULL);
     CHECK(strstr(out, "prediction_light_withheld reason=no_recent_data have=7 need=5") != NULL);
 
-    /* --compare, default threshold 450: these cycles stop at about 684, so none reached it and
-     * there is nothing to compare. */
-    (void)snprintf(args, sizeof args, "--dir %s --days 60 --now %llu --compare", g_dir,
+    /* The default dry threshold is 750 (provisional, for this plant). */
+    (void)snprintf(args, sizeof args, "--dir %s --days 60 --now %llu", g_dir,
                    (unsigned long long)(g_last_ts + STEP_MS));
     CHECK(tool(args, out, sizeof out) == 0);
-    CHECK(strstr(out, "dry threshold: 450 (draft, not calibrated)") != NULL); /* the default */
+    CHECK(strstr(out, "dry threshold: 750 (draft, not calibrated)") != NULL);
+
+    /* --compare --dry 450: these cycles stop at about 684, so none reached it and there is
+     * nothing to compare. */
+    (void)snprintf(args, sizeof args, "--dir %s --dry 450 --days 60 --now %llu --compare", g_dir,
+                   (unsigned long long)(g_last_ts + STEP_MS));
+    CHECK(tool(args, out, sizeof out) == 0);
+    CHECK(strstr(out, "dry threshold: 450 (draft, not calibrated)") != NULL);
     CHECK(strstr(out, "compare: each past dry-down predicted 12 h before it reached 450, from the other cycles") != NULL);
     CHECK(strstr(out, "compare paired=0 need=5 soil_median_err_h=0.00 light_median_err_h=0.00 verdict=insufficient") != NULL);
     CHECK(strstr(out, "  compare cycle=") == NULL);

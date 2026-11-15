@@ -302,7 +302,7 @@ static void routes_and_refusals(void)
     dproc      p;
 
     make_dir(dir, sizeof dir);
-    add_record(dir, 1, 600);
+    add_record(dir, 1, 900);
     o = base_opts(dir);
     start(&p, &o);
 
@@ -316,8 +316,8 @@ static void routes_and_refusals(void)
 
     (void)get(p.port, "GET /status.json HTTP/1.1\r\n\r\n");
     CHECK(status_of() == 200 && has("Content-Type: application/json"));
-    CHECK(strstr(body(), "\"records\":1") != NULL && strstr(body(), "\"raw\":600") != NULL);
-    CHECK(strstr(body(), "\"needs_water\":\"no\",\"dry_raw\":450,") != NULL); /* 600 > 450 */
+    CHECK(strstr(body(), "\"records\":1") != NULL && strstr(body(), "\"raw\":900") != NULL);
+    CHECK(strstr(body(), "\"needs_water\":\"no\",\"dry_raw\":750,") != NULL); /* 900 > 750 */
     check_length();
 
     (void)get(p.port, "GET /nope HTTP/1.1\r\n\r\n");
@@ -423,11 +423,11 @@ static void needs_water_threshold(void)
     make_dir(dir, sizeof dir);
     add_record(dir, 1, 400);
 
-    o = base_opts(dir); /* the default line, 450: 400 is dry */
+    o = base_opts(dir); /* the default line, 750: 400 is dry */
     start(&p, &o);
     (void)get(p.port, "GET /status.json HTTP/1.1\r\n\r\n");
     CHECK(status_of() == 200);
-    CHECK(strstr(body(), "\"needs_water\":\"yes\",\"dry_raw\":450,") != NULL);
+    CHECK(strstr(body(), "\"needs_water\":\"yes\",\"dry_raw\":750,") != NULL);
     (void)get(p.port, "GET / HTTP/1.1\r\n\r\n");
     CHECK(status_of() == 200 && strstr(body(), "Yes, water this plant") != NULL);
     finish(&p, GT_EXIT_OK);
