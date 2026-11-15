@@ -1,0 +1,39 @@
+2026-11-14T01:54:46Z INFO supervisor start orphans_killed=0
+2026-11-14T01:54:46Z INFO supervisor start child=gt-hub pid=16926
+2026-11-14T01:54:46Z INFO supervisor start child=gt-sensor-soil pid=16927
+2026-11-14T01:54:46Z INFO supervisor start child=gt-sensor-light pid=16928
+2026-11-14T01:54:46Z INFO supervisor start child=gt-interface pid=16929
+2026-11-14T01:54:56Z INFO supervisor child=gt-interface state=running
+2026-11-14T01:54:56Z INFO supervisor child=gt-sensor-soil state=running
+2026-11-14T01:55:06Z INFO supervisor child=gt-hub state=running
+2026-11-14T01:55:46Z INFO supervisor child=gt-sensor-light state=running
+2026-11-14T02:03:46Z INFO supervisor stopping children=4
+2026-11-14T02:03:46Z INFO supervisor child=gt-interface pid=16929 exited code=0
+2026-11-14T02:03:46Z INFO supervisor child=gt-sensor-soil pid=16927 exited code=0
+2026-11-14T02:03:46Z INFO supervisor child=gt-sensor-light pid=16928 exited code=0
+2026-11-14T02:03:46Z INFO supervisor child=gt-hub pid=16926 exited code=0
+2026-11-14T02:03:46Z INFO supervisor stopped
+2026-11-15T02:52:59Z INFO supervisor start orphans_killed=0
+2026-11-15T02:52:59Z INFO supervisor start child=gt-hub pid=88111
+2026-11-15T02:52:59Z INFO supervisor start child=gt-sensor-soil pid=88112
+2026-11-15T02:52:59Z INFO supervisor start child=gt-sensor-light pid=88113
+2026-11-15T02:52:59Z INFO supervisor start child=gt-interface pid=88114
+2026-11-15T02:53:09Z INFO supervisor child=gt-sensor-soil state=running
+2026-11-15T02:53:09Z INFO supervisor child=gt-interface state=running
+2026-11-15T02:53:19Z INFO supervisor child=gt-hub state=running
+2026-11-15T02:53:59Z INFO supervisor child=gt-sensor-light state=running
+2026-11-15T02:54:05Z ERROR supervisor child=gt-hub pid=88111 died signal=9
+2026-11-15T02:54:05Z INFO supervisor child=gt-hub restart=1 delay=1s
+2026-11-15T02:54:06Z INFO supervisor start child=gt-hub pid=88174
+2026-11-15T02:55:27Z INFO supervisor child=gt-hub state=running
+2026-11-15T02:56:56Z ERROR supervisor child=gt-interface pid=88114 died signal=9
+2026-11-15T02:56:56Z INFO supervisor child=gt-interface restart=1 delay=1s
+2026-11-15T02:56:57Z INFO supervisor start child=gt-interface pid=88319
+2026-11-15T02:57:07Z INFO supervisor child=gt-interface state=running
+2026-11-15T02:58:59Z WARN supervisor child=gt-sensor-soil heartbeat_missed age=30s
+2026-11-15T02:59:29Z ERROR supervisor child=gt-sensor-soil heartbeat_timeout age=60s signal=SIGTERM
+2026-11-15T02:59:34Z ERROR supervisor child=gt-sensor-soil killed signal=SIGKILL
+2026-11-15T02:59:34Z ERROR supervisor child=gt-sensor-soil pid=88112 died signal=9
+2026-11-15T02:59:34Z INFO supervisor child=gt-sensor-soil restart=1 delay=1s
+2026-11-15T02:59:35Z INFO supervisor start child=gt-sensor-soil pid=88451
+2026-11-15T02:59:45Z INFO supervisor child=gt-sensor-soil state=running
